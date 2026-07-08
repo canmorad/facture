@@ -31,8 +31,8 @@ const toggleDropdown = () => {
 }
 
 const selectCompany = (id) => {
-  selectedCompany.value = id
-  isOpen.value = false
+  localStorage.setItem('current_company_id', String(id))
+  window.location.reload()
 }
 
 const handleClickOutside = (event) => {
@@ -63,7 +63,7 @@ onUnmounted(() => {
     >
       <span class="flex items-center gap-2 truncate">
         <i class="fa-solid fa-building text-gray-400 text-xs transition-colors duration-300" :class="{ 'text-[#062121]': isOpen }"></i>
-        <span class="text-gray-800 font-medium">{{ currentCompany?.company_name || 'Sélectionner' }}</span>
+        <span class="text-gray-800 font-medium">{{ currentCompany?.name || 'Sélectionner' }}</span>
       </span>
       <svg
         class="w-4 h-4 text-gray-400 transition-transform duration-300"
@@ -91,7 +91,7 @@ onUnmounted(() => {
           class="fa-solid fa-building text-xs transition-colors"
           :class="company.id === selectedCompany ? 'text-[#062121]' : 'text-gray-400'"
         ></i>
-        <span class="truncate">{{ company.company_name }}</span>
+        <span class="truncate">{{ company.name }}</span>
         <svg
           v-if="company.id === selectedCompany"
           class="w-3.5 h-3.5 text-[#062121] ml-auto flex-shrink-0"

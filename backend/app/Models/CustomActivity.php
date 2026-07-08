@@ -22,13 +22,15 @@ class CustomActivity extends Activity
     protected static function booted(): void
     {
         static::addGlobalScope('company', function (Builder $builder) {
+            if (!request() || !request()->is('api/*')) {
+                return;
+            }
 
-            $companyId = request()->input('company_id');
+            $companyId = config('app.current_company_id');
 
             if ($companyId) {
                 $builder->where('company_id', $companyId);
             }
-
         });
     }
 }

@@ -97,8 +97,9 @@ const handleClickOutside = (event) => {
   }
 };
 
+// Fonction closeDropdown avec délai pour permettre la sélection
 const closeDropdown = () => {
-  setTimeout(() => {
+  window.setTimeout(() => {
     isOpen.value = false;
   }, 200);
 };
@@ -132,17 +133,17 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="dropdownRef" class="relative inline-block w-full">
+  <div ref="dropdownRef" class="relative inline-block w-full z-50">
     <div class="relative flex items-center">
       <input
-  type="text"
-  :value="searchTerm"
-  @input="handleInput"
-  @focus="handleInputFocus"
-  @blur="handleBlur"
-  :placeholder="placeholder"
-  class="w-full rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2 pr-10 text-sm text-gray-700 focus:border-[#C5F82A] focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-[#C5F82A]/20 transition-all duration-300"
-/>
+        type="text"
+        :value="searchTerm"
+        @input="handleInput"
+        @focus="handleInputFocus"
+        @blur="closeDropdown"
+        :placeholder="placeholder"
+        class="w-full rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2 pr-10 text-sm text-gray-700 focus:border-[#C5F82A] focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-[#C5F82A]/20 transition-all duration-300"
+      />
       <button
         type="button"
         @click="toggleDropdown"
@@ -162,7 +163,7 @@ onUnmounted(() => {
 
     <div
       v-if="isOpen && options.length"
-      class="absolute left-0 z-20 mt-1 w-full bg-white border border-[#E2E8F0] rounded-xl shadow-lg max-h-60 overflow-y-auto py-1.5 animate-fadeIn"
+      class="absolute left-0 z-[999] mt-1 w-full bg-white border border-[#E2E8F0] rounded-xl shadow-lg max-h-60 overflow-y-auto py-1.5 animate-fadeIn"
     >
       <div
         v-for="opt in filteredOptions"

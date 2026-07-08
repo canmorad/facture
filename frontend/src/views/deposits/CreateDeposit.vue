@@ -49,7 +49,7 @@
                 v-model="form.quote_id"
                 :options="
                   lookupData.quotes.map((q) => ({
-                    label: `#${q.document.number} - ${q.document.customer?.name || 'Client'} (${q.document.total_ttc} DH)`,
+                    label: `${q.document.number ? '#' + q.document.number : 'Brouillon'} - ${q.document.customer?.name || 'Client'} (${q.document.total_ttc} DH)`,
                     value: q.id,
                   }))
                 "
@@ -130,13 +130,12 @@
             <!-- Date d'échéance et TVA -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <InputLabel for="due_date" value="Date d'échéance *" />
-                <TextInput
-                  id="due_date"
-                  type="date"
-                  v-model="form.due_date"
-                  required
-                />
+                 <InputLabel for="due_date" value="Date d'échéance" />
+                 <TextInput
+                   id="due_date"
+                   type="date"
+                   v-model="form.due_date"
+                 />
                 <InputError class="mt-2" :message="errors.due_date" />
               </div>
               <div>
@@ -516,18 +515,14 @@ const canSubmit = computed(() => {
   return (
     form.quote_id &&
     form.input_value > 0 &&
-    isDepositValid.value &&
-    form.due_date &&
-    form.tax_rate > 0
+    isDepositValid.value
   );
 });
 
 const fetchLookups = async () => {
   isLoading.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
-    const params = companyId ? { company_id: companyId } : {};
-    const { data } = await axios.get("/api/deposits/create", { params });
+    const { data } = await axios.get("/api/deposits/create");
     lookupData.value = data;
     form.intro_text = data.defaults.intro_text || "";
     form.footer_text = data.defaults.footer_text || "";
@@ -577,13 +572,7 @@ const fetchBalance = async (quoteId) => {
 
   isFetchingBalance.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
-    const { data } = await axios.get(
-      `/api/deposits/remaining-balance/${quoteId}`,
-      {
-        params: { company_id: companyId },
-      },
-    );
+    const { data } = await axios.get(`/api/deposits/remaining-balance/${quoteId}`);
     balanceData.value = data;
   } catch (err) {
     const message =
@@ -599,10 +588,7 @@ const fetchQuoteDetails = async (quoteId) => {
 
   isFetchingQuote.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
-    const { data } = await axios.get(`/api/quotes/${quoteId}`, {
-      params: { company_id: companyId },
-    });
+    const { data } = await axios.get(`/api/quotes/${quoteId}`);
     selectedQuote.value = data;
     form.quote_id = data.id;
     form.tax_rate = data.document?.items?.[0]?.tax_rate || data.tax_rate || 20;
@@ -631,10 +617,6 @@ const submit = async () => {
     errors.input_value = "Le montant dépasse le solde restant disponible.";
     return;
   }
-  if (!form.due_date) {
-    errors.due_date = "Veuillez saisir une date d'échéance.";
-    return;
-  }
 
   const confirmed = await confirm(
     "Enregistrer l'acompte",
@@ -644,11 +626,7 @@ const submit = async () => {
 
   isSaving.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
     const payload = { ...form };
-    if (companyId) {
-      payload.company_id = companyId;
-    }
     const response = await axios.post("/api/deposits", payload);
     success(
       "Acompte enregistré",
@@ -710,7 +688,7 @@ onMounted(async () => {
   await fetchLookups();
   const quoteId = route.query.quote_id;
   if (quoteId) {
-    await fetchQuoteDetails(quoteId);
+    form.quote_id = parseInt(quoteId);
   }
 });
 </script>

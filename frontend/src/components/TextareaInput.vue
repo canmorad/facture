@@ -1,7 +1,7 @@
 <script setup>
 defineProps({
   modelValue: [String, Number],
-  rows: { type: Number, default: 3 },
+  rows: { type: [Number, String], default: 3 },
   placeholder: { type: String, default: '' },
   id: { type: String, default: '' },
 })

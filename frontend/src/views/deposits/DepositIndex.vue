@@ -19,25 +19,15 @@ const dropdownPosition = ref({ top: 0, left: 0 });
 const fetchDeposits = async () => {
   isLoading.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
-    if (!companyId) {
-      error("Erreur", "Aucune entreprise sélectionnée.");
-      return;
-    }
-
-    const params = {
-      company_id: companyId,
-    };
-    if (selectedStatus.value !== "all") {
-      params.status = selectedStatus.value;
-    }
-
+    const params = {};
+    if (selectedStatus.value !== "all") params.status = selectedStatus.value;
     const { data } = await axios.get("/api/deposits", { params });
     deposits.value = data;
   } catch (err) {
-    const message =
-      err.response?.data?.error || "Impossible de charger les acomptes.";
-    error("Erreur", message);
+    error(
+      "Erreur",
+      err.response?.data?.error || "Impossible de charger les acomptes.",
+    );
   } finally {
     isLoading.value = false;
   }
@@ -59,7 +49,6 @@ const getStatusBadgeClass = (status) => {
   };
   return classes[status] || "bg-gray-100 text-gray-700";
 };
-
 const getStatusText = (status) => {
   const texts = {
     DRAFT: "Brouillon",
@@ -75,39 +64,42 @@ const toggleDropdown = (id, event) => {
     closeDropdown();
     return;
   }
-
   const target = event.currentTarget;
   const rect = target.getBoundingClientRect();
   const dropdownWidth = 240;
-  const windowWidth = window.innerWidth;
   let left = rect.left;
-  if (left + dropdownWidth > windowWidth - 10) {
-    left = windowWidth - dropdownWidth - 10;
-  }
-  if (left < 10) {
-    left = 10;
-  }
-
+  if (left + dropdownWidth > window.innerWidth - 10)
+    left = window.innerWidth - dropdownWidth - 10;
+  if (left < 10) left = 10;
   dropdownPosition.value = {
     top: rect.bottom + window.scrollY + 4,
     left: left,
   };
-
   openDropdownId.value = id;
 };
-
 const closeDropdown = () => {
   openDropdownId.value = null;
 };
-
 const editDeposit = (id) => {
   closeDropdown();
   router.push({ name: "deposit.edit", params: { id } });
 };
-
 const previewDeposit = (id) => {
   closeDropdown();
   router.push(`/document/preview/${id}`);
+};
+const downloadPdf = (id) => {
+  closeDropdown();
+  window.open(`/document/print/${id}`, "_blank");
+};
+
+const openSendPage = (dep) => {
+  closeDropdown();
+  router.push({
+    name: "document.send",
+    params: { id: dep.id },
+    query: { type: "deposit", page: "deposit" },
+  });
 };
 
 const deleteDeposit = async (id, number) => {
@@ -117,18 +109,15 @@ const deleteDeposit = async (id, number) => {
     `Supprimer l'acompte ${number} définitivement ?`,
   );
   if (!result.isConfirmed) return;
-
   try {
-    const companyId = authStore.currentCompanyId;
-    await axios.delete(`/api/documents/${id}`, {
-      params: { company_id: companyId },
-    });
+    await axios.delete(`/api/documents/${id}`);
     success("Supprimé !", "L'acompte a été supprimé.");
     await fetchDeposits();
   } catch (err) {
-    const message =
-      err.response?.data?.error || "Impossible de supprimer l'acompte.";
-    error("Erreur", message);
+    error(
+      "Erreur",
+      err.response?.data?.error || "Impossible de supprimer l'acompte.",
+    );
   }
 };
 
@@ -136,53 +125,28 @@ const finalizeDeposit = async (deposit) => {
   closeDropdown();
   const result = await confirm(
     "Finaliser l'acompte",
-    `Finaliser l'acompte ${deposit.number} ? Le numéro sera généré automatiquement et le statut passera à Payé.`,
+    `Finaliser l'acompte ${deposit.number} ?`,
   );
   if (!result.isConfirmed) return;
-
   try {
-    const companyId = authStore.currentCompanyId;
-    const { data } = await axios.put(
-      `/api/deposits/${deposit.id}/finalize`,
-      null,
-      {
-        params: { company_id: companyId },
-      },
-    );
-    success("Finalisé !", `L'acompte ${data.number} a été finalisé et marqué comme payé.`);
+    const { data } = await axios.put(`/api/deposits/${deposit.id}/finalize`);
+    success("Finalisé !", `L'acompte ${data.number} a été finalisé.`);
     await fetchDeposits();
   } catch (err) {
-    const message =
-      err.response?.data?.error || "Impossible de finaliser l'acompte.";
-    error("Erreur", message);
+    error(
+      "Erreur",
+      err.response?.data?.error || "Impossible de finaliser l'acompte.",
+    );
   }
 };
 
-const downloadPdf = (id) => {
-  closeDropdown();
-  window.open(`/api/documents/${id}/pdf`, '_blank');
-};
-
-const sendEmail = (id) => {
-  closeDropdown();
-  // TODO: Implémenter l'envoi par email
-  success("Email envoyé", "L'acompte a été envoyé par email.");
-};
-
-const formatDate = (date) => {
-  if (!date) return "—";
-  return new Date(date).toLocaleDateString("fr-MA");
-};
-
-const formatCurrency = (amount) => {
-  return (
-    new Intl.NumberFormat("fr-MA", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount) + " DH"
-  );
-};
-
+const formatDate = (date) =>
+  date ? new Date(date).toLocaleDateString("fr-MA") : "—";
+const formatCurrency = (amount) =>
+  new Intl.NumberFormat("fr-MA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount) + " DH";
 const changeStatusFilter = (status) => {
   selectedStatus.value = status;
   fetchDeposits();
@@ -212,12 +176,10 @@ onMounted(() => {
                       : 'text-gray-500 hover:text-gray-700',
                   ]"
                 >
-                  <i class="fas fa-list"></i> Tous
-                  <span
-                    class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full"
+                  <i class="fas fa-list"></i> Tous<span
+                    class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full ml-1"
+                    >{{ deposits.length }}</span
                   >
-                    {{ deposits.length }}
-                  </span>
                 </button>
                 <button
                   @click="changeStatusFilter('DRAFT')"
@@ -228,15 +190,13 @@ onMounted(() => {
                       : 'text-gray-500 hover:text-gray-700',
                   ]"
                 >
-                  <i class="fas fa-pen"></i> Brouillons
-                  <span
-                    class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full"
-                  >
-                    {{
+                  <i class="fas fa-pen"></i> Brouillons<span
+                    class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full ml-1"
+                    >{{
                       deposits.filter((d) => d.documentable?.status === "DRAFT")
                         .length
-                    }}
-                  </span>
+                    }}</span
+                  >
                 </button>
                 <button
                   @click="changeStatusFilter('FINALIZED')"
@@ -247,16 +207,14 @@ onMounted(() => {
                       : 'text-gray-500 hover:text-gray-700',
                   ]"
                 >
-                  <i class="fas fa-check-circle"></i> Finalisés
-                  <span
-                    class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full"
-                  >
-                    {{
+                  <i class="fas fa-check-circle"></i> Finalisés<span
+                    class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full ml-1"
+                    >{{
                       deposits.filter(
                         (d) => d.documentable?.status === "FINALIZED",
                       ).length
-                    }}
-                  </span>
+                    }}</span
+                  >
                 </button>
                 <button
                   @click="changeStatusFilter('PAID')"
@@ -267,15 +225,13 @@ onMounted(() => {
                       : 'text-gray-500 hover:text-gray-700',
                   ]"
                 >
-                  <i class="fas fa-check-double"></i> Payés
-                  <span
-                    class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full"
-                  >
-                    {{
+                  <i class="fas fa-check-double"></i> Payés<span
+                    class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full ml-1"
+                    >{{
                       deposits.filter((d) => d.documentable?.status === "PAID")
                         .length
-                    }}
-                  </span>
+                    }}</span
+                  >
                 </button>
                 <button
                   @click="changeStatusFilter('CANCELLED')"
@@ -286,16 +242,14 @@ onMounted(() => {
                       : 'text-gray-500 hover:text-gray-700',
                   ]"
                 >
-                  <i class="fas fa-times-circle"></i> Annulés
-                  <span
-                    class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full"
-                  >
-                    {{
+                  <i class="fas fa-times-circle"></i> Annulés<span
+                    class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full ml-1"
+                    >{{
                       deposits.filter(
                         (d) => d.documentable?.status === "CANCELLED",
                       ).length
-                    }}
-                  </span>
+                    }}</span
+                  >
                 </button>
               </div>
             </div>
@@ -324,7 +278,6 @@ onMounted(() => {
               </svg>
               <p class="mt-2 text-gray-500">Chargement des acomptes...</p>
             </div>
-
             <div
               v-else-if="filteredDeposits.length === 0"
               class="text-center py-12"
@@ -340,7 +293,6 @@ onMounted(() => {
                 }}
               </p>
             </div>
-
             <div v-else class="overflow-x-auto">
               <table class="min-w-full">
                 <thead>
@@ -389,15 +341,24 @@ onMounted(() => {
                       </div>
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap">
-                      <div class="text-sm text-gray-700">
-                        {{
-                          deposit.documentable?.quote?.document?.number || "—"
-                        }}
-                      </div>
+                      <router-link
+                        v-if="deposit.parent_document_id && deposit.documentable?.quote?.document?.number"
+                        :to="`/document/preview/${deposit.parent_document_id}`"
+                        class="text-sm font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                      >
+                        #{{ deposit.documentable?.quote?.document?.number }}
+                      </router-link>
+                      <div v-else class="text-sm text-gray-500">—</div>
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap">
                       <div class="text-sm text-gray-700">
-                        {{ deposit.customer?.name || "Client inconnu" }}
+                        {{
+                          deposit.customer.customerable
+                            ? deposit.customer.type === "b2b"
+                              ? deposit.customer.customerable.legal_name
+                              : deposit.customer.customerable.name
+                            : deposit.customer.name || "—"
+                        }}
                       </div>
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-right">
@@ -411,9 +372,8 @@ onMounted(() => {
                           'inline-flex px-2.5 py-1 text-xs font-semibold rounded-full',
                           getStatusBadgeClass(deposit.documentable?.status),
                         ]"
+                        >{{ getStatusText(deposit.documentable?.status) }}</span
                       >
-                        {{ getStatusText(deposit.documentable?.status) }}
-                      </span>
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-right">
                       <button
@@ -432,14 +392,12 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Dropdown menu -->
     <Teleport to="body">
       <div
         v-if="openDropdownId"
         class="fixed inset-0 z-30"
         @click.self="closeDropdown"
       ></div>
-
       <div
         v-if="openDropdownId"
         class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1"
@@ -459,39 +417,18 @@ onMounted(() => {
                 <i class="fas fa-edit w-4 text-gray-400"></i> Modifier
               </button>
               <button
-                @click="deleteDeposit(deposit.id, deposit.number)"
-                class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
-              >
-                <i class="fas fa-trash-alt w-4 text-red-400"></i> Supprimer
-              </button>
-              <button
                 @click="finalizeDeposit(deposit)"
                 class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
               >
                 <i class="fas fa-check-circle w-4 text-green-500"></i> Finaliser
               </button>
-            </template>
-            <template v-else-if="deposit.documentable?.status === 'PAID'">
               <button
-                @click="previewDeposit(deposit.id)"
-                class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                @click="deleteDeposit(deposit.id, deposit.number)"
+                class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
               >
-                <i class="fas fa-eye w-4 text-gray-400"></i> Aperçu
-              </button>
-              <button
-                @click="downloadPdf(deposit.id)"
-                class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
-              >
-                <i class="fas fa-file-pdf w-4 text-red-500"></i> Télécharger PDF
-              </button>
-              <button
-                @click="sendEmail(deposit.id)"
-                class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
-              >
-                <i class="fas fa-envelope w-4 text-blue-500"></i> Envoyer par email
+                <i class="fas fa-trash-alt w-4 text-red-400"></i> Supprimer
               </button>
             </template>
-            <!-- Pour les autres statuts (FINALIZED, CANCELLED) -->
             <template v-else>
               <button
                 @click="previewDeposit(deposit.id)"
@@ -500,16 +437,17 @@ onMounted(() => {
                 <i class="fas fa-eye w-4 text-gray-400"></i> Aperçu
               </button>
               <button
+                @click="openSendPage(deposit)"
+                class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+              >
+                <i class="fas fa-envelope w-4 text-blue-500"></i> Envoyer par
+                email
+              </button>
+              <button
                 @click="downloadPdf(deposit.id)"
                 class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
               >
                 <i class="fas fa-file-pdf w-4 text-red-500"></i> Télécharger PDF
-              </button>
-              <button
-                @click="sendEmail(deposit.id)"
-                class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
-              >
-                <i class="fas fa-envelope w-4 text-blue-500"></i> Envoyer par email
               </button>
             </template>
           </div>

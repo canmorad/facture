@@ -2,12 +2,17 @@
 
 namespace App\Models;
 
+use App\Traits\LogsActivityTrait;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Customer extends Model
 {
+    use LogsActivityTrait;
+
+    protected $with = ['customerable'];
+
     protected $fillable = [
         'company_id',
         'email',
@@ -35,6 +40,15 @@ class Customer extends Model
     public function customerable(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    public function getNameAttribute(): string
+    {
+        if ($this->customerable) {
+            return $this->customerable->legal_name ?? $this->customerable->name ?? 'Client';
+        }
+
+        return 'Client';
     }
 
     public function getTypeLabelAttribute(): string

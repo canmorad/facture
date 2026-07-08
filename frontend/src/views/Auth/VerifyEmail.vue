@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/auth";
 
 import PrimaryButton from "../../components/PrimaryButton.vue";
 import logoUrl from "../../assets/images/logo.png";
+import loginBackgroundUrl from "../../assets/images/login-background.png";
 
 const router = useRouter();
 const route = useRoute();
@@ -87,80 +88,87 @@ onMounted(() => {
     class="min-h-screen bg-[#F5F0E8] flex items-center justify-center p-4 md:p-10 font-['Inter',sans-serif]"
   >
     <div
-      class="bg-white w-full max-w-[600px] rounded-[24px] overflow-hidden shadow-[0_15px_35px_rgba(0,0,0,0.08)] p-6 sm:p-10 md:p-[60px]"
+      class="bg-white w-full max-w-[1000px] flex rounded-[24px] overflow-hidden shadow-[0_15px_35px_rgba(0,0,0,0.08)]"
     >
-      <div class="text-center mb-8">
-        <div class="flex justify-center mb-5">
-          <img
-            :src="logoUrl"
-            alt="Logo"
-            class="h-[120px] w-auto object-contain contrast-125 brightness-105 drop-shadow-[0_2px_10px_rgba(197,248,42,0.4)]"
-          />
+      <div class="flex-1 p-8 sm:p-12 md:p-[70px]">
+        <div class="mb-[40px]">
+          <div class="mb-6 flex items-center h-[50px]">
+            <img
+              :src="logoUrl"
+              alt="Logo"
+              class="h-[120px] max-h-[120px] w-auto object-contain scale-150 origin-left contrast-125 brightness-105 drop-shadow-[0_2px_10px_rgba(197,248,42,0.4)]"
+            />
+          </div>
+          <div
+            class="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-6"
+          >
+            <i class="fas fa-check-circle text-4xl text-green-600"></i>
+          </div>
+          <h1 class="text-[#062121] text-2xl sm:text-[28px] font-extrabold mb-2">
+            Vérifiez votre email
+          </h1>
+          <p class="text-[#64748B] text-sm max-w-sm">
+            Un lien de vérification a été envoyé à votre adresse email. Veuillez
+            cliquer sur le lien pour activer votre compte.
+          </p>
         </div>
 
         <div
-          class="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6"
+          v-if="verificationStatus"
+          class="mb-6 p-3 rounded-lg text-sm"
+          :class="{
+            'bg-green-50 text-green-700 border border-green-200':
+              verificationStatus.type === 'success',
+            'bg-red-50 text-red-700 border border-red-200':
+              verificationStatus.type === 'error',
+          }"
         >
-          <svg
-            class="w-10 h-10 text-green-600"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-            ></path>
-          </svg>
+          {{ verificationStatus.message }}
         </div>
 
-        <h1 class="text-[#062121] text-2xl sm:text-[28px] font-extrabold mb-2">
-          Vérifiez votre email
-        </h1>
-        <p class="text-[#64748B] text-sm max-w-sm mx-auto">
-          Un lien de vérification a été envoyé à votre adresse email. Veuillez
-          cliquer sur le lien pour activer votre compte.
-        </p>
+        <form @submit.prevent="resendVerification" class="space-y-[22px]">
+          <PrimaryButton
+            class="w-full !p-[14px] !bg-[#062121] !text-white border-none rounded-lg font-bold text-sm sm:text-base justify-center transition-all duration-300 hover:-translate-y-[2px] hover:shadow-[0_8px_15px_rgba(15,23,42,0.15)]"
+            :class="{ 'opacity-50 cursor-not-allowed': resending }"
+            :disabled="resending"
+          >
+            <span v-if="resending">Envoi en cours...</span>
+            <span v-else>Renvoyer l'email de vérification</span>
+          </PrimaryButton>
+
+          <div
+            class="text-center my-5 relative before:content-[''] before:absolute before:top-1/2 before:left-0 before:right-0 before:h-[1px] before:bg-[#E2E8F0]"
+          >
+            <span class="relative bg-white px-[15px] text-[#64748B] text-sm"
+              >Ou</span
+            >
+          </div>
+
+          <p class="text-center text-[13px] text-[#718096]">
+            <button
+              @click="logout"
+              class="text-[#062121] font-bold no-underline border-b-2 border-[#C5F82A]"
+            >
+              Se déconnecter
+            </button>
+          </p>
+        </form>
       </div>
 
       <div
-        v-if="verificationStatus"
-        class="mb-6 p-3 rounded-lg text-sm"
-        :class="{
-          'bg-green-50 text-green-700 border border-green-200':
-            verificationStatus.type === 'success',
-          'bg-red-50 text-red-700 border border-red-200':
-            verificationStatus.type === 'error',
+        class="hidden md:flex flex-1 bg-cover bg-center items-center justify-center relative"
+        :style="{
+          backgroundImage: `linear-gradient(rgba(15, 23, 42, 0.3), rgba(15, 23, 42, 0.3)), url(${loginBackgroundUrl})`,
         }"
       >
-        {{ verificationStatus.message }}
-      </div>
-
-      <div class="space-y-4">
-        <PrimaryButton
-          @click="resendVerification"
-          class="w-full !p-[14px] !bg-[#062121] !text-white border-none rounded-lg font-bold text-sm sm:text-base justify-center transition-all duration-300 hover:-translate-y-[2px] hover:shadow-[0_8px_15px_rgba(15,23,42,0.15)]"
-          :class="{ 'opacity-50 cursor-not-allowed': resending }"
-          :disabled="resending"
-        >
-          <span v-if="resending">Envoi en cours...</span>
-          <span v-else>Renvoyer l'email de vérification</span>
-        </PrimaryButton>
-
-        <div class="text-center text-sm text-[#718096]">
-          <button
-            @click="logout"
-            class="text-[#64748B] hover:text-[#062121] transition-colors"
+        <div class="text-center">
+          <h2
+            class="text-white text-[32px] font-black tracking-[3px] border-4 border-white p-[15px_25px]"
           >
-            Se déconnecter
-          </button>
+            BÂTIR. CHANGER.
+          </h2>
         </div>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped></style>

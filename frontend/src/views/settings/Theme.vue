@@ -12,7 +12,6 @@
           </div>
 
           <div class="flex flex-col xl:flex-row gap-8 p-6 lg:p-8">
-            <!-- Settings Panel (40%) -->
             <div class="xl:w-2/5 space-y-6">
               <form @submit.prevent="submit" class="space-y-6">
                 <div>
@@ -136,7 +135,6 @@
               </form>
             </div>
 
-            <!-- Preview Panel (60%) -->
             <div
               class="xl:w-3/5 bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden"
             >
@@ -164,8 +162,6 @@
                         : '20px 20px',
                   }"
                 >
-                  <!-- En-tête -->
-                  <!-- En-tête -->
                   <div class="flex justify-between items-start mb-5">
                     <div>
                       <h1
@@ -178,7 +174,6 @@
                         {{ fmtDate(previewInvoice.date) }}
                       </p>
                     </div>
-                    <!-- Logo sans fond - agrandi -->
                     <img
                       v-if="logoUrl"
                       :src="logoUrl"
@@ -187,7 +182,6 @@
                     />
                   </div>
 
-                  <!-- Émetteur / Destinataire -->
                   <div class="grid grid-cols-2 gap-6 mb-5">
                     <div>
                       <p
@@ -272,7 +266,6 @@
                     </div>
                   </div>
 
-                  <!-- Détail (tableau) -->
                   <div class="mb-4">
                     <p
                       class="text-xs font-bold uppercase tracking-wider mb-2"
@@ -362,7 +355,6 @@
                     </div>
                   </div>
 
-                  <!-- Totaux -->
                   <div class="flex justify-end mb-5">
                     <div class="w-2/3 sm:w-1/2 space-y-0.5 text-[11px]">
                       <div class="flex justify-between">
@@ -429,7 +421,6 @@
                     </div>
                   </div>
 
-                  <!-- Conditions -->
                   <div>
                     <p
                       class="text-xs font-bold uppercase tracking-wider mb-2"

@@ -79,14 +79,14 @@ onMounted(async () => {
             Paramètres
           </p>
           <div class="flex flex-col gap-[5px]">
-            <router-link
+            <!-- <router-link
               to="/settings/general"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
             >
               <i class="fa-solid fa-sliders-h text-[18px] w-[22px] text-center"></i>
               Général
-            </router-link>
+            </router-link> -->
             <router-link
               to="/settings/documents"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
@@ -151,14 +151,14 @@ onMounted(async () => {
               <i class="fa-solid fa-clock text-[18px] w-[22px] text-center"></i>
               Intérêts de retard
             </router-link>
-            <router-link
+            <!-- <router-link
               to="/settings/keywords"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
             >
               <i class="fa-solid fa-key text-[18px] w-[22px] text-center"></i>
               Mots clés
-            </router-link>
+            </router-link> -->
             <router-link
               to="/settings/coordinates"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
@@ -190,7 +190,7 @@ onMounted(async () => {
                 class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               >
                 <i class="fa-solid fa-arrow-left text-[18px] w-[22px] text-center"></i>
-                Retour au tableau de bord
+                Tableau de bord
               </router-link>
             </div>
           </div>
@@ -211,7 +211,6 @@ onMounted(async () => {
               <i class="fa-solid fa-gear text-[18px] w-[22px] text-center"></i>
               Paramètres
             </router-link>
-            <!-- Nouveau lien pour Organisations -->
             <router-link
               to="/settings/organizations"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
@@ -220,13 +219,13 @@ onMounted(async () => {
               <i class="fa-solid fa-building text-[18px] w-[22px] text-center"></i>
               Organisations
             </router-link>
-            <a
-              href="#"
-              class="flex items-center gap-[12px] px-[15px] py-[12px] text-[17px] font-semibold text-[#FF4D4D] transition-all duration-300 mt-5 border-t border-[#E2E8F0] pt-4 rounded-none hover:bg-red-50/50"
+            <button
+              @click="authStore.logout()"
+              class="flex items-center gap-[12px] px-[15px] py-[12px] text-[17px] font-semibold text-[#FF4D4D] transition-all duration-300 mt-5 border-t border-[#E2E8F0] pt-4 rounded-none hover:bg-red-50/50 w-full text-left cursor-pointer border-0 bg-transparent"
             >
               <i class="fa-solid fa-right-from-bracket text-[18px] w-[22px] text-center"></i>
               Déconnexion
-            </a>
+            </button>
           </div>
         </nav>
       </main>

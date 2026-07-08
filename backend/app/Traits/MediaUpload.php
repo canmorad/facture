@@ -14,7 +14,7 @@ trait MediaUpload
         return $path;
     }
 
-    public function delete(?string $path): void
+    public function deleteFile(?string $path): void
     {
         if ($path && Storage::disk('public')->exists($path)) {
             Storage::disk('public')->delete($path);

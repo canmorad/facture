@@ -6,6 +6,10 @@ use App\Http\Requests\PurchaseOrderRequest;
 use App\Services\PurchaseOrderService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use App\Models\PurchaseOrder;
+use App\Models\Document;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Gate;
 
 class PurchaseOrderController extends Controller
 {
@@ -13,65 +17,214 @@ class PurchaseOrderController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $companyId = $request->input('company_id');
-        if (!$companyId) {
-            return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-        }
-
+        Gate::authorize('view-documents');
         try {
-            $this->purchaseOrderService->setCompanyId($companyId);
             $purchaseOrders = $this->purchaseOrderService->getAll($request->query('status'));
             return response()->json($purchaseOrders);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors du chargement des bons de commande.'], 500);
+        } catch (\Throwable $e) {
+            Log::error('PurchaseOrder index error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur interne est survenue lors de la récupération des commandes.',
+            ], 500);
         }
     }
 
-    public function create(Request $request): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
-        $companyId = $request->input('company_id');
-        if (!$companyId) {
-            return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-        }
-
+        Gate::authorize('view-documents');
         try {
-            $this->purchaseOrderService->setCompanyId($companyId);
+            $companyId = $this->getCompanyId();
+            $document = Document::where('id', $id)
+                ->where('company_id', $companyId)
+                ->where('documentable_type', PurchaseOrder::class)
+                ->with(['customer', 'items', 'documentable', 'parent'])
+                ->first();
+
+            if (!$document) {
+                $po = PurchaseOrder::with(['document.customer', 'document.items', 'document.parent'])->find($id);
+                if ($po && $po->document && $po->document->company_id == $companyId) {
+                    $document = $po->document;
+                }
+            }
+
+            if (!$document) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Commande introuvable.',
+                ], 404);
+            }
+
+            return response()->json([
+                'document' => $document,
+                'is_derived_from_quote' => $document->isDerivedFromQuote(),
+                'ancestor_chain' => $document->getAncestorChain(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("PurchaseOrder show error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de charger les détails de la commande.',
+            ], 500);
+        }
+    }
+
+    public function ancestorChain(int $id): JsonResponse
+    {
+        Gate::authorize('view-documents');
+        try {
+            $document = Document::where('company_id', $this->getCompanyId())
+                ->where('documentable_type', PurchaseOrder::class)
+                ->findOrFail($id);
+
+            return response()->json([
+                'ancestor_chain' => $document->getAncestorChain(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("PurchaseOrder ancestorChain error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur interne est survenue.',
+            ], 500);
+        }
+    }
+
+    public function create(): JsonResponse
+    {
+        Gate::authorize('create-document');
+        try {
             $data = $this->purchaseOrderService->getCreationData();
             return response()->json($data);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors du chargement des données.'], 500);
+        } catch (\Throwable $e) {
+            Log::error('PurchaseOrder create error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur interne est survenue lors du chargement des données.',
+            ], 500);
         }
     }
 
     public function store(PurchaseOrderRequest $request): JsonResponse
     {
-        $companyId = $request->input('company_id');
-        if (!$companyId) {
-            return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-        }
-
+        Gate::authorize('create-document');
         try {
-            $this->purchaseOrderService->setCompanyId($companyId);
             $document = $this->purchaseOrderService->createDraft($request->validated());
             return response()->json($document, 201);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors de l\'enregistrement du bon de commande.'], 500);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error('PurchaseOrder store error: ' . $e->getMessage(), ['input' => $request->all(), 'exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de la création de la commande.',
+            ], 500);
         }
     }
 
-    public function finalize(Request $request, int $id): JsonResponse
+    public function finalize(int $id): JsonResponse
     {
-        $companyId = $request->input('company_id');
-        if (!$companyId) {
-            return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-        }
-
+        Gate::authorize('finalize-document');
         try {
-            $this->purchaseOrderService->setCompanyId($companyId);
             $document = $this->purchaseOrderService->finalize($id);
             return response()->json($document);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors de la finalisation du bon de commande.'], 500);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error("PurchaseOrder finalize error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de la finalisation.',
+            ], 500);
+        }
+    }
+
+    public function send(int $id): JsonResponse
+    {
+        Gate::authorize('sign-document');
+        try {
+            $companyId = $this->getCompanyId();
+            $document = Document::with('documentable')
+                ->where('company_id', $companyId)
+                ->where('documentable_type', PurchaseOrder::class)
+                ->findOrFail($id);
+
+            $document->documentable->transitionTo('SENT');
+
+            return response()->json($document->fresh(['customer', 'items', 'documentable', 'parent']));
+        } catch (\Throwable $e) {
+            Log::error("PurchaseOrder send error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de l\'envoi.',
+            ], 500);
+        }
+    }
+
+    public function confirm(int $id): JsonResponse
+    {
+        Gate::authorize('finalize-document');
+        try {
+            $companyId = $this->getCompanyId();
+            $document = Document::with('documentable')
+                ->where('company_id', $companyId)
+                ->where('documentable_type', PurchaseOrder::class)
+                ->findOrFail($id);
+
+            $document->documentable->transitionTo('CONFIRMED');
+
+            return response()->json($document->fresh(['customer', 'items', 'documentable', 'parent']));
+        } catch (\Throwable $e) {
+            Log::error("PurchaseOrder confirm error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de la confirmation.',
+            ], 500);
+        }
+    }
+
+    public function updateMetadata(Request $request, int $id): JsonResponse
+    {
+        Gate::authorize('edit-document');
+        try {
+            $document = $this->purchaseOrderService->updateMetadata($id, $request->all());
+            return response()->json($document);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error("PurchaseOrder updateMetadata error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de la mise à jour.',
+            ], 500);
+        }
+    }
+
+    public function updateItems(Request $request, int $id): JsonResponse
+    {
+        Gate::authorize('edit-document');
+        try {
+            $document = $this->purchaseOrderService->updateItems($id, $request->input('items', []));
+            return response()->json($document);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error("PurchaseOrder updateItems error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de la mise à jour.',
+            ], 500);
         }
     }
 }

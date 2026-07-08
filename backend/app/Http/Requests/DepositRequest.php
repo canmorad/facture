@@ -18,7 +18,7 @@ class DepositRequest extends FormRequest
             'quote_id' => 'required|exists:quotes,id',
             'input_type' => ['required', Rule::in(['percentage', 'fixed'])],
             'input_value' => 'required|numeric|min:1',
-            'due_date' => 'required|date',
+            'due_date' => 'nullable|date',
             'tax_rate' => 'required|numeric|min:0|max:100',
             'deposit_description' => 'nullable|string|max:255',
             'payment_condition' => 'nullable|string|max:255',

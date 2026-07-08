@@ -11,8 +11,6 @@ use Illuminate\Support\Facades\DB;
 
 class DepositService
 {
-    protected ?int $companyId = null;
-
     public function __construct(
         protected DocumentCalculationService $calculationService,
         protected NumberingService $numberingService,
@@ -20,19 +18,13 @@ class DepositService
         protected DocumentItemService $documentItemService
     ) {}
 
-    public function setCompanyId(?int $companyId): self
-    {
-        $this->companyId = $companyId;
-        return $this;
-    }
-
     public function getAll(?string $status = null)
     {
         $companyId = $this->getCompanyId();
 
         $query = Document::where('company_id', $companyId)
             ->where('documentable_type', Deposit::class)
-            ->with(['customer', 'items', 'documentable']);
+            ->with(['customer', 'items', 'documentable.quote.document']);
 
         if ($status && in_array($status, ['DRAFT', 'FINALIZED', 'PAID', 'CANCELLED'])) {
             $query->whereHas('documentable', function ($q) use ($status) {
@@ -48,9 +40,6 @@ class DepositService
         $company = $this->getCompany();
 
         $quotes = $company->quotes()
-            ->whereHas('document', function ($q) {
-                $q->whereNotNull('number');
-            })
             ->with('document')
             ->get();
 
@@ -93,14 +82,14 @@ class DepositService
 
         $quoteTotalTtc = $quote->document->total_ttc;
 
-        $activeDeposits = Deposit::where('quote_id', $quoteId)
+        $activeDepositIds = Deposit::where('quote_id', $quoteId)
             ->whereIn('status', ['FINALIZED', 'PAID'])
-            ->with('document')
-            ->get();
+            ->pluck('id');
 
-        $depositedTotalTtc = $activeDeposits->sum(function ($deposit) {
-            return $deposit->document ? $deposit->document->total_ttc : 0;
-        });
+        $depositedTotalTtc = Document::where('documentable_type', Deposit::class)
+            ->whereIn('documentable_id', $activeDepositIds)
+            ->where('company_id', $companyId)
+            ->sum('total_ttc');
 
         $remainingBalance = max(0, $quoteTotalTtc - $depositedTotalTtc);
 
@@ -146,6 +135,7 @@ class DepositService
                 'company_id' => $companyId,
                 'customer_id' => $quote->document->customer_id,
                 'bank_account_id' => $validated['bank_account_id'] ?? null,
+                'parent_document_id' => $quote->document->id,
                 'number' => $number,
                 'total_ht' => $totalHt,
                 'total_tva' => $totalTva,
@@ -222,11 +212,7 @@ class DepositService
 
     protected function getCompanyId(): int
     {
-        if (!$this->companyId) {
-            throw new \RuntimeException('Aucune entreprise sélectionnée.');
-        }
-
-        return $this->companyId;
+        return config('app.current_company_id') ?? throw new \RuntimeException('Aucune entreprise sélectionnée.');
     }
 
     protected function getCompany(): Company

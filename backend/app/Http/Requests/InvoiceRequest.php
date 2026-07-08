@@ -29,6 +29,7 @@ class InvoiceRequest extends FormRequest
             'conclusion_text' => 'nullable|string',
             'global_discount_type' => ['nullable', Rule::in(['percentage', 'fixed'])],
             'global_discount_value' => 'nullable|numeric|min:0',
+            'parent_document_id' => 'nullable|integer|exists:documents,id',
         ];
 
         if ($this->input('type') === 'STANDARD') {

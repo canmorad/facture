@@ -13,15 +13,15 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->api(prepend: [
+            \Illuminate\Http\Middleware\HandleCors::class,
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
         ]);
 
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
-        ]);
-
-        $middleware->alias([
             'has.company' => \App\Http\Middleware\EnsureHasCompany::class,
+            'check.company' => \App\Http\Middleware\CheckCompanyHeader::class,
+            'owner' => \App\Http\Middleware\CheckIfOwner::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

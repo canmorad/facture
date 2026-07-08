@@ -2,7 +2,7 @@
 import { reactive, ref, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import axios from "axios";
-import Swal from "sweetalert2";
+import { success, error, confirm } from "../helpers/notifications";
 import InputError from "./InputError.vue";
 
 // ---------- PROPS ----------
@@ -156,12 +156,7 @@ const fetchClientById = async (id) => {
     selectedClient.value = data;
     documentForm.client_id = data.id;
   } catch {
-    Swal.fire({
-      title: "Erreur",
-      text: "Client non trouvé",
-      icon: "error",
-      confirmButtonColor: "#062121",
-    });
+    error("Erreur", "Client non trouvé");
     router.push("/invoices");
   }
 };
@@ -203,19 +198,13 @@ const saveDocument = async () => {
     return;
   }
 
-  const confirm = await Swal.fire({
-    title: props.isEdit
+  const result = await confirm(
+    props.isEdit
       ? `Mettre à jour ce ${props.type === "invoice" ? "Facture" : "Devis"} ?`
       : `Enregistrer ce ${props.type === "invoice" ? "Facture" : "Devis"} ?`,
-    text: `Client : ${selectedClient.value?.name} — Total TTC : ${fmt(totals.value.ttc)} DH`,
-    icon: "question",
-    showCancelButton: true,
-    confirmButtonColor: "#062121",
-    cancelButtonColor: "#64748B",
-    confirmButtonText: props.isEdit ? "Oui, mettre à jour" : "Oui, enregistrer",
-    cancelButtonText: "Annuler",
-  });
-  if (!confirm.isConfirmed) return;
+    `Client : ${selectedClient.value?.name} — Total TTC : ${fmt(totals.value.ttc)} DH`
+  );
+  if (!result.isConfirmed) return;
 
   isSavingDoc.value = true;
 
@@ -236,20 +225,10 @@ const saveDocument = async () => {
   try {
     if (props.isEdit && props.editData) {
       await axios.put(`/api/invoices/${props.editData.id}`, payload);
-      Swal.fire({
-        title: "Mis à jour !",
-        text: `${props.type === "invoice" ? "Facture" : "Devis"} modifié avec succès.`,
-        icon: "success",
-        confirmButtonColor: "#062121",
-      });
+      success("Mis à jour !", `${props.type === "invoice" ? "Facture" : "Devis"} modifié avec succès.`);
     } else {
       await axios.post("/api/invoices", payload);
-      Swal.fire({
-        title: "Enregistré !",
-        text: `${props.type === "invoice" ? "Facture" : "Devis"} créé avec succès.`,
-        icon: "success",
-        confirmButtonColor: "#062121",
-      });
+      success("Enregistré !", `${props.type === "invoice" ? "Facture" : "Devis"} créé avec succès.`);
     }
     router.push(props.type === "invoice" ? "/invoices" : "/devis");
   } catch (error) {

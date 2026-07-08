@@ -2,22 +2,22 @@
 
 namespace App\Models;
 
+use App\Exceptions\ImmutableDocumentException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Spatie\Activitylog\LogOptions;
-use Spatie\Activitylog\Models\Activity;
+use App\Traits\LogsActivityTrait;
 
 class Document extends Model
 {
-    use LogsActivity;
+    use LogsActivityTrait;
+
     protected $fillable = [
         'company_id',
         'customer_id',
         'bank_account_id',
+        'parent_document_id',
         'number',
         'total_ht',
         'total_tva',
@@ -65,47 +65,144 @@ class Document extends Model
         return $this->belongsTo(BankAccount::class);
     }
 
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(__CLASS__, 'parent_document_id');
+    }
+
+    public function children(): HasMany
+    {
+        return $this->hasMany(__CLASS__, 'parent_document_id');
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(DocumentItem::class);
     }
 
-    public function children(): BelongsToMany
+    public function getSourceTypeAttribute(): ?string
     {
-        return $this->belongsToMany(__CLASS__, 'document_links', 'parent_id', 'child_id')
-            ->withTimestamps();
+        if (!$this->parent_document_id || !$this->parent) {
+            return null;
+        }
+
+        return class_basename($this->parent->documentable_type);
     }
 
-    public function parents(): BelongsToMany
+    public function isDerivedFromQuote(): bool
     {
-        return $this->belongsToMany(__CLASS__, 'document_links', 'child_id', 'parent_id')
-            ->withTimestamps();
+        $ancestor = $this->findSourceDocument();
+
+        if (!$ancestor) {
+            return false;
+        }
+
+        return $ancestor->documentable_type === Quote::class;
     }
 
-
-    public function tapActivity(Activity $activity, string $eventName): void
+    public function findSourceDocument(): ?self
     {
-        $activity->company_id = $this->company_id;
+        $current = $this;
+
+        $visited = [];
+
+        while ($current->parent_document_id && $current->parent) {
+            if (in_array($current->id, $visited)) {
+                break;
+            }
+            $visited[] = $current->id;
+            $current = $current->parent;
+        }
+
+        if ($current->id === $this->id && !$current->parent_document_id) {
+            return null;
+        }
+
+        return $current;
     }
 
-    public function getActivitylogOptions(): LogOptions
+    public function getAncestorChain(): array
     {
-        return LogOptions::defaults()
-            ->useLogName('documents')
-            ->logFillable()
-            ->logOnlyDirty()
-            ->dontSubmitEmptyLogs()
-            ->setDescriptionForEvent(function (string $eventName) {
+        $chain = [];
+        $current = $this;
+        $visited = [];
 
-                $number = $this->number ?? 'Sans numéro';
-                $userName = auth()->user()?->name ?? 'Système';
+        $chain[] = $this->buildChainEntry($current);
 
-                return match ($eventName) {
-                    'created' => "Document [{$number}] a été créé par {$userName}",
-                    'updated' => "Document [{$number}] a été mis à jour par {$userName}",
-                    'deleted' => "Document [{$number}] a été supprimé par {$userName}",
-                    default => "Document [{$number}] a été modifié par {$userName}",
-                };
-            });
+        while ($current->parent_document_id && $current->parent) {
+            if (in_array($current->parent->id, $visited)) {
+                break;
+            }
+            $visited[] = $current->parent->id;
+            $current = $current->parent;
+            array_unshift($chain, $this->buildChainEntry($current));
+        }
+
+        return $chain;
     }
+
+    protected function buildChainEntry(Document $doc): array
+    {
+        $customerName = null;
+        if ($doc->customer) {
+            $customerable = $doc->customer->customerable;
+            if ($customerable && $doc->customer->type === 'b2b') {
+                $customerName = $customerable->legal_name ?? $doc->customer->name;
+            } elseif ($customerable && $doc->customer->type === 'b2c') {
+                $customerName = $customerable->name ?? $doc->customer->name;
+            } else {
+                $customerName = $doc->customer->name;
+            }
+        }
+
+        return [
+            'id' => $doc->id,
+            'documentable_type' => class_basename($doc->documentable_type),
+            'number' => $doc->number,
+            'status' => $doc->documentable->status ?? null,
+            'total_ttc' => $doc->total_ttc,
+            'customer' => $customerName ? ['name' => $customerName] : null,
+        ];
+    }
+
+    public function getDescendantChain(): array
+    {
+        $chain = [];
+        $this->collectDescendants($chain);
+
+        return $chain;
+    }
+
+    protected function collectDescendants(array &$chain): void
+    {
+        foreach ($this->children as $child) {
+            $chain[] = $this->buildChainEntry($child);
+            $child->collectDescendants($chain);
+        }
+    }
+
+    public function hasChildrenOfType(string $type): bool
+    {
+        return $this->children()
+            ->where('documentable_type', $type)
+            ->exists();
+    }
+
+    public function getChildOfType(string $type): ?self
+    {
+        return $this->children()
+            ->where('documentable_type', $type)
+            ->first();
+    }
+
+    public function guardImmutable(): void
+    {
+        if ($this->parent_document_id) {
+            throw new ImmutableDocumentException(
+                $this->source_type ?? 'source',
+                $this->id
+            );
+        }
+    }
+
 }

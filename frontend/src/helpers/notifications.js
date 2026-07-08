@@ -75,6 +75,20 @@ export function successSaved(text = 'Vos modifications ont été enregistrées a
   return success('Enregistré !', text)
 }
 
+export function toast(title = '', text = '', icon = 'success') {
+  return baseSwal.fire({
+    icon: icon,
+    title: title,
+    text: text,
+    toast: true,
+    position: 'top-end',
+    showConfirmButton: false,
+    timer: 2500,
+    timerProgressBar: true,
+    iconColor: '#C5F82A',
+  })
+}
+
 export function showWelcomeModal(title = 'Bienvenue !', text = '', buttonText = 'Commencer') {
   return baseSwal.fire({
     icon: 'info',

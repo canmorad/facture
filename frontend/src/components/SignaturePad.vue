@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, watch, nextTick } from "vue";
 import SignaturePad from "signature_pad";
-import Swal from "sweetalert2";
+import { success, error, confirm } from "../helpers/notifications";
 import InputError from "./InputError.vue";
 
 const props = defineProps({
@@ -74,33 +74,17 @@ const saveSignature = () => {
     } else if (signaturePad?.isEmpty() && props.preview) {
         closeModal();
     } else {
-        Swal.fire({
-            title: "Signature requise",
-            text: "Veuillez dessiner votre signature avant de sauvegarder",
-            icon: "warning",
-            confirmButtonColor: "#062121",
-            confirmButtonText: "D'accord"
-        });
+        error("Signature requise", "Veuillez dessiner votre signature avant de sauvegarder");
     }
 };
 
-const removeSignature = () => {
-    Swal.fire({
-        title: "Supprimer la signature ?",
-        text: "Cette action est irréversible.",
-        icon: "warning",
-        showCancelButton: true,
-        confirmButtonColor: "#d33",
-        cancelButtonColor: "#64748B",
-        confirmButtonText: "Oui, supprimer",
-        cancelButtonText: "Annuler",
-    }).then((result) => {
-        if (result.isConfirmed) {
-            emit('update:modelValue', null);
-            emit('update:preview', null);
-            Swal.fire("Supprimée !", "La signature a été supprimée.", "success");
-        }
-    });
+const removeSignature = async () => {
+    const result = await confirm("Supprimer la signature ?", "Cette action est irréversible.");
+    if (result.isConfirmed) {
+        emit('update:modelValue', null);
+        emit('update:preview', null);
+        success("Supprimée !", "La signature a été supprimée.");
+    }
 };
 </script>
 

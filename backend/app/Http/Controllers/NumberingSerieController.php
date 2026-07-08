@@ -6,23 +6,14 @@ use App\Models\Document;
 use App\Models\NumberingSerie;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class NumberingSerieController extends Controller
 {
-    protected function getCompanyId(Request $request)
+    public function show()
     {
-        return $request->input('company_id');
-    }
-
-    public function show(Request $request)
-    {
-        $companyId = $this->getCompanyId($request);
-        if (!$companyId) {
-            return response()->json(['error' => 'Aucune entreprise trouvée'], 400);
-        }
-
         try {
+            $companyId = $this->getCompanyId();
             $serie = NumberingSerie::where('company_id', $companyId)->first();
             $hasDocuments = $this->checkIfAnyDocumentsExist($companyId);
 
@@ -39,19 +30,17 @@ class NumberingSerieController extends Controller
                 'data' => null,
                 'has_documents' => $hasDocuments,
             ], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors du chargement de la configuration.'], 500);
+        } catch (\Throwable $e) {
+            Log::error('NumberingSerie show error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['success' => false, 'message' => 'Une erreur interne est survenue.'], 500);
         }
     }
 
     public function store(Request $request)
     {
-        $companyId = $this->getCompanyId($request);
-        if (!$companyId) {
-            return response()->json(['error' => 'Aucune entreprise trouvée'], 400);
-        }
-
         try {
+            $companyId = $this->getCompanyId();
+
             $validated = $request->validate([
                 'format' => 'required|string|max:255',
                 'min_size' => 'required|integer|min:1|max:20',
@@ -69,14 +58,9 @@ class NumberingSerieController extends Controller
             $validated['company_id'] = $companyId;
 
             $startFields = [
-                'start_from_invoice',
-                'start_from_quote',
-                'start_from_credit_note',
-                'start_from_deposit_invoice',
-                'start_from_deposit_credit_note',
-                'start_from_balance_invoice',
-                'start_from_delivery_note',
-                'start_from_purchase_order',
+                'start_from_invoice', 'start_from_quote', 'start_from_credit_note',
+                'start_from_deposit_invoice', 'start_from_deposit_credit_note',
+                'start_from_balance_invoice', 'start_from_delivery_note', 'start_from_purchase_order',
             ];
 
             foreach ($startFields as $field) {
@@ -85,34 +69,29 @@ class NumberingSerieController extends Controller
             }
 
             $serie = NumberingSerie::create($validated);
-
             return response()->json($serie, 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json(['errors' => $e->errors()], 422);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors de l\'enregistrement de la configuration.'], 500);
+            return response()->json(['success' => false, 'errors' => $e->errors()], 422);
+        } catch (\Throwable $e) {
+            Log::error('NumberingSerie store error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['success' => false, 'message' => 'Une erreur est survenue lors de l\'enregistrement.'], 500);
         }
     }
 
     public function update(Request $request)
     {
-        $companyId = $this->getCompanyId($request);
-        if (!$companyId) {
-            return response()->json(['error' => 'Aucune entreprise trouvée'], 400);
-        }
-
         try {
+            $companyId = $this->getCompanyId();
+
             $serie = NumberingSerie::where('company_id', $companyId)->first();
             if (!$serie) {
-                return response()->json(['error' => 'Configuration introuvable'], 404);
+                return response()->json(['success' => false, 'message' => 'Configuration introuvable.'], 404);
             }
 
             $hasDocuments = $this->checkIfAnyDocumentsExist($companyId);
 
             if ($hasDocuments && $request->hasAny(['format', 'min_size', 'reset_period'])) {
-                return response()->json([
-                    'error' => 'Impossible de modifier le format, la taille ou la période de réinitialisation car des documents ont déjà été créés.'
-                ], 422);
+                return response()->json(['success' => false, 'message' => 'Impossible de modifier le format, la taille ou la période de réinitialisation car des documents ont déjà été créés.'], 422);
             }
 
             $validated = $request->validate([
@@ -130,14 +109,9 @@ class NumberingSerieController extends Controller
             ]);
 
             $startFields = [
-                'start_from_invoice',
-                'start_from_quote',
-                'start_from_credit_note',
-                'start_from_deposit_invoice',
-                'start_from_deposit_credit_note',
-                'start_from_balance_invoice',
-                'start_from_delivery_note',
-                'start_from_purchase_order',
+                'start_from_invoice', 'start_from_quote', 'start_from_credit_note',
+                'start_from_deposit_invoice', 'start_from_deposit_credit_note',
+                'start_from_balance_invoice', 'start_from_delivery_note', 'start_from_purchase_order',
             ];
 
             foreach ($startFields as $field) {
@@ -153,12 +127,12 @@ class NumberingSerieController extends Controller
             }
 
             $serie->update($validated);
-
             return response()->json($serie);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json(['errors' => $e->errors()], 422);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors de la mise à jour de la configuration.'], 500);
+            return response()->json(['success' => false, 'errors' => $e->errors()], 422);
+        } catch (\Throwable $e) {
+            Log::error('NumberingSerie update error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['success' => false, 'message' => 'Une erreur est survenue lors de la mise à jour.'], 500);
         }
     }
 

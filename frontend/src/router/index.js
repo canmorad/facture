@@ -7,18 +7,12 @@ import Register from '../views/Auth/Register.vue'
 import Login from '../views/Auth/Login.vue'
 import Clients from '../views/Clients.vue'
 import Products from '../views/Products.vue'
-import Invoices from '../views/Invoices.vue'
 
 // Quotes
 import QuoteIndex from '../views/quotes/QuoteIndex.vue'
 import CreateQuote from '../views/quotes/CreateQuote.vue'
 
-import DocumentCreate from '../views/DocumentCreate.vue'
-import DocumentPreview from '../views/DocumentPreview.vue'
-import TemplateGallery from '../views/TemplateGallery.vue'
 import Coordinates from '../views/settings/Coordinates.vue'
-import DeliveryNotes from '../views/DeliveryNotes.vue'
-import CreateDelivery from '../views/CreateDelivery.vue'
 import ProductTypes from '../views/settings/ProductTypes.vue'
 import Organizations from '../views/settings/Organizations.vue'
 import PurchaseOrderIndex from '../views/purchase-orders/PurchaseOrderIndex.vue'
@@ -30,7 +24,9 @@ import InvoiceIndex from '../views/invoices/InvoiceIndex.vue'
 import CreateInvoice from '../views/invoices/CreateInvoice.vue'
 import DepositIndex from '../views/deposits/DepositIndex.vue'
 import CreateDeposit from '../views/deposits/CreateDeposit.vue'
-
+import DocumentPreview from '../views/DocumentPreview.vue'
+import DocumentPrint from '../views/DocumentPrint.vue'
+import AcceptInvitation from '../views/Auth/AcceptInvitation.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -39,6 +35,10 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: Home,
+    },
+    {
+      path: '/settings',
+      redirect: '/settings/coordinates',
     },
     {
       path: '/settings/product-types',
@@ -73,7 +73,23 @@ const router = createRouter({
     },
     {
       path: '/settings/theme',
+      name: 'settings.theme',
       component: () => import('../views/settings/Theme.vue'),
+    },
+    {
+      path: '/document/preview/:id',
+      name: 'document.preview',
+      component: DocumentPreview,
+    },
+    {
+      path: '/document/send/:id',
+      name: 'document.send',
+      component: () => import('../views/DocumentSend.vue'),
+    },
+    {
+      path: '/document/print/:id',
+      name: 'document.print',
+      component: DocumentPrint,
     },
     {
       path: '/settings/bank-accounts',
@@ -102,6 +118,11 @@ const router = createRouter({
     },
     // --------------------------------
     {
+      path: '/accept-invitation',
+      name: 'accept-invitation',
+      component: AcceptInvitation,
+    },
+    {
       path: '/register',
       name: 'register',
       component: Register,
@@ -115,6 +136,11 @@ const router = createRouter({
       path: '/verify-email',
       name: 'verify-email',
       component: () => import('../views/Auth/VerifyEmail.vue'),
+    },
+    {
+      path: '/settings/users',
+      name: 'settings.users',
+      component: () => import('../views/settings/Users.vue'),
     },
     {
       path: '/settings/coordinates',
@@ -209,64 +235,51 @@ const router = createRouter({
       component: Products,
     },
     {
-      path: '/invoices',
-      name: 'invoices',
-      component: Invoices,
-    },
-    {
-      path: '/document/create',
-      name: 'document.create',
-      component: DocumentCreate,
-    },
-    {
-      path: '/document/edit/:id',
-      name: 'document.edit',
-      component: DocumentCreate,
-    },
-    {
-      path: '/document/preview/:id',
-      name: 'document.preview',
-      component: DocumentPreview,
-    },
-    {
-      path: '/template-gallery',
-      name: 'template-gallery',
-      component: TemplateGallery,
-    },
-    {
-      path: '/fournisseurs',
-      name: 'fournisseurs',
-      component: () => import('../views/Fournisseurs.vue'),
-    },
-    {
-      path: '/charges',
-      name: 'charges',
-      component: () => import('../views/Charges.vue'),
-    },
-    {
       path: '/purchase-invoices',
       name: 'purchase-invoices',
       component: () => import('../views/PurchaseInvoices.vue'),
     },
     {
-      path: '/caisses',
-      name: 'caisses',
-      component: () => import('../views/Caisses.vue'),
+      path: '/recurring-invoices',
+      name: 'recurring-invoice.index',
+      component: () => import('../views/recurring-invoices/RecurringInvoiceIndex.vue'),
+      meta: { requiresAuth: true },
     },
     {
-      path: '/deliveries',
-      name: 'deliveries',
-      component: DeliveryNotes,
+      path: '/recurring-invoices/create',
+      name: 'recurring-invoice.create',
+      component: () => import('../views/recurring-invoices/CreateRecurringInvoice.vue'),
+      meta: { requiresAuth: true },
     },
     {
-      path: '/deliveries/create',
-      name: 'deliveries.create',
-      component: CreateDelivery,
+      path: '/recurring-invoices/edit/:id',
+      name: 'recurring-invoice.edit',
+      component: () => import('../views/recurring-invoices/CreateRecurringInvoice.vue'),
+      meta: { requiresAuth: true },
     },
     {
-      path: '/delivery/preview/:id',
-      name: 'delivery.preview',
-      component: () => import('../views/DeliveryPreview.vue'),
+      path: '/expenses',
+      name: 'expenses.index',
+      component: () => import('../views/expenses/ExpenseIndex.vue'),
+      meta: { requiresAuth: true },
+    },
+    // {
+    //   path: '/expenses/create',
+    //   name: 'expenses.create',
+    //   component: () => import('../views/expenses/CreateExpense.vue'),
+    //   meta: { requiresAuth: true },
+    // },
+    {
+      path: '/expenses/preview/:id',
+      name: 'expenses.preview',
+      component: () => import('../views/expenses/PreviewExpense.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/suppliers',
+      name: 'suppliers.index',
+      component: () => import('../views/suppliers/SupplierIndex.vue'),
+      meta: { requiresAuth: true },
     },
   ],
 })

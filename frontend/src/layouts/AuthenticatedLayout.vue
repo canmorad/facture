@@ -2,9 +2,12 @@
 import { ref, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
+import { usePermission } from "../composables/usePermission";
 import CompanySelect from "../components/CompanySelect.vue";
 import logoUrl from "../assets/images/logo.png";
 import profile from "../assets/images/profile.png";
+
+const { can } = usePermission();
 
 const router = useRouter();
 const sidebarOpen = ref(false);
@@ -83,6 +86,7 @@ onMounted(async () => {
               Tableau de bord
             </router-link>
             <router-link
+              v-if="can('view-documents')"
               to="/invoices"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -93,6 +97,7 @@ onMounted(async () => {
               Factures
             </router-link>
             <router-link
+              v-if="can('view-documents')"
               to="/quote"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -103,6 +108,7 @@ onMounted(async () => {
               Devis
             </router-link>
             <router-link
+              v-if="can('view-documents')"
               to="/purchase-orders"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -113,6 +119,7 @@ onMounted(async () => {
               Bons de commande
             </router-link>
             <router-link
+              v-if="can('view-documents')"
               to="/delivery-notes"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -121,6 +128,7 @@ onMounted(async () => {
               Bons de livraison
             </router-link>
             <router-link
+              v-if="can('view-documents')"
               to="/deposits"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -131,6 +139,18 @@ onMounted(async () => {
               Factures d'acompte
             </router-link>
             <router-link
+              v-if="can('manage-recurring-invoices')"
+              to="/recurring-invoices"
+              class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
+              active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
+            >
+              <i
+                class="fa-solid fa-rotate text-[18px] w-[22px] text-center"
+              ></i>
+              Factures récurrentes
+            </router-link>
+            <router-link
+              v-if="can('view-customers')"
               to="/clients"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -139,22 +159,25 @@ onMounted(async () => {
               Clients
             </router-link>
             <router-link
-              to="/caisses"
+              v-if="can('view-documents')"
+              to="/expenses"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
             >
-              <i class="fas fa-wallet text-[18px] w-[22px] text-center"></i>
-              Caisses
+              <i class="fa-solid fa-money-bill-wave text-[18px] w-[22px] text-center"></i>
+              Dépenses
             </router-link>
             <router-link
-              to="/deliveries"
+              v-if="can('view-documents')"
+              to="/suppliers"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
             >
-              <i class="fas fa-truck text-[18px] w-[22px] text-center"></i>
-              Bons de livraison
+              <i class="fa-solid fa-truck-field text-[18px] w-[22px] text-center"></i>
+              Fournisseurs
             </router-link>
             <router-link
+              v-if="can('view-products')"
               to="/products"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -172,6 +195,7 @@ onMounted(async () => {
           </p>
           <div class="flex flex-col gap-[5px]">
             <router-link
+              v-if="can('view-settings')"
               to="/settings/product-types"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -179,15 +203,15 @@ onMounted(async () => {
               <i class="fa-solid fa-gear text-[18px] w-[22px] text-center"></i>
               Paramètres
             </router-link>
-            <a
-              href="#"
-              class="flex items-center gap-[12px] px-[15px] py-[12px] text-[17px] font-semibold text-[#FF4D4D] transition-all duration-300 mt-5 border-t border-[#E2E8F0] pt-4 rounded-none hover:bg-red-50/50"
+            <button
+              @click="authStore.logout()"
+              class="flex items-center gap-[12px] px-[15px] py-[12px] text-[17px] font-semibold text-[#FF4D4D] transition-all duration-300 mt-5 border-t border-[#E2E8F0] pt-4 rounded-none hover:bg-red-50/50 w-full text-left cursor-pointer border-0 bg-transparent"
             >
               <i
                 class="fa-solid fa-right-from-bracket text-[18px] w-[22px] text-center"
               ></i>
               Déconnexion
-            </a>
+            </button>
           </div>
         </nav>
       </main>

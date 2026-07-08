@@ -8,42 +8,70 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Models\Document;
 use App\Models\Quote;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Gate;
 
 class DepositController extends Controller
 {
-    public function __construct(protected DepositService $depositService)
-    {
-    }
+    public function __construct(protected DepositService $depositService) {}
 
     public function index(Request $request): JsonResponse
     {
-        $companyId = $request->input('company_id');
-        if (!$companyId) {
-            return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-        }
-
+        Gate::authorize('view-documents');
         try {
-            $this->depositService->setCompanyId($companyId);
             $deposits = $this->depositService->getAll($request->query('status'));
             return response()->json($deposits);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors du chargement des acomptes.'], 500);
+        } catch (\Throwable $e) {
+            Log::error('Deposit index error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur interne est survenue lors de la récupération des acomptes.',
+            ], 500);
         }
     }
 
-    public function create(Request $request): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
-        $companyId = $request->input('company_id');
-        if (!$companyId) {
-            return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-        }
-
+        Gate::authorize('view-documents');
         try {
-            $this->depositService->setCompanyId($companyId);
+            $companyId = $this->getCompanyId();
+            $document = Document::where('id', $id)
+                ->where('company_id', $companyId)
+                ->with(['customer', 'items', 'documentable', 'parent'])
+                ->first();
+
+            if (!$document) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Acompte introuvable.',
+                ], 404);
+            }
+
+            return response()->json([
+                'document' => $document,
+                'ancestor_chain' => $document->getAncestorChain(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("Deposit show error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Impossible de charger les détails de l\'acompte.',
+            ], 500);
+        }
+    }
+
+    public function create(): JsonResponse
+    {
+        Gate::authorize('create-document');
+        try {
             $data = $this->depositService->getCreationData();
             return response()->json($data);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            Log::error('Deposit create error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur interne est survenue lors du chargement des données.',
+            ], 500);
         }
     }
 
@@ -76,63 +104,97 @@ class DepositController extends Controller
 
     public function remainingBalance(Request $request, int $id): JsonResponse
     {
-        $companyId = $request->input('company_id');
-        if (!$companyId) {
-            return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-        }
-
+        Gate::authorize('view-documents');
         try {
+            $companyId = $this->getCompanyId();
             $quoteId = $this->getQuoteIdFromDocumentId($id, $companyId);
             if (!$quoteId) {
-                return response()->json(['error' => 'Devis introuvable.'], 404);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Devis introuvable.',
+                ], 404);
             }
 
-            $this->depositService->setCompanyId($companyId);
             $balance = $this->depositService->getRemainingBalance($quoteId);
             return response()->json($balance);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 400);
+        } catch (\Throwable $e) {
+            Log::error("Deposit remainingBalance error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur interne est survenue.',
+            ], 500);
         }
     }
 
-public function store(DepositRequest $request): JsonResponse
-{
-    $companyId = $request->input('company_id');
-    if (!$companyId) {
-        return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-    }
-
-    $payload = $request->validated();
-    $quoteId = $this->getQuoteIdFromDocumentId($payload['quote_id'], $companyId);
-    if (!$quoteId) {
-        return response()->json(['error' => 'Devis source introuvable.'], 404);
-    }
-    $payload['quote_id'] = $quoteId;
-
-    try {
-        $this->depositService->setCompanyId($companyId);
-        $document = $this->depositService->createDeposit($payload);
-        return response()->json($document, 201);
-    } catch (\App\Exceptions\DepositLimitExceededException $e) {
-        return $e->render();
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
-    }
-}
-
-    public function finalize(Request $request, int $id): JsonResponse
+    public function store(DepositRequest $request): JsonResponse
     {
-        $companyId = $request->input('company_id');
-        if (!$companyId) {
-            return response()->json(['error' => 'Veuillez sélectionner une entreprise.'], 400);
-        }
-
+        Gate::authorize('create-document');
         try {
-            $this->depositService->setCompanyId($companyId);
+            $companyId = $this->getCompanyId();
+            $payload = $request->validated();
+            $quoteId = $this->getQuoteIdFromDocumentId($payload['quote_id'], $companyId);
+            if (!$quoteId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Devis source introuvable.',
+                ], 404);
+            }
+            $payload['quote_id'] = $quoteId;
+
+            $document = $this->depositService->createDeposit($payload);
+            return response()->json($document, 201);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error('Deposit store error: ' . $e->getMessage(), ['input' => $request->all(), 'exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de la création de l\'acompte.',
+            ], 500);
+        }
+    }
+
+    public function finalize(int $id): JsonResponse
+    {
+        Gate::authorize('finalize-document');
+        try {
             $document = $this->depositService->finalize($id);
             return response()->json($document);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Une erreur est survenue lors de la finalisation de l\'acompte.'], 500);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error("Deposit finalize error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de la finalisation.',
+            ], 500);
+        }
+    }
+
+    public function markPaid(int $id): JsonResponse
+    {
+        Gate::authorize('finalize-document');
+        try {
+            $companyId = $this->getCompanyId();
+            $document = Document::where('company_id', $companyId)
+                ->where('documentable_type', \App\Models\Deposit::class)
+                ->findOrFail($id);
+
+            $document->documentable->transitionTo('PAID');
+
+            return response()->json($document->fresh(['customer', 'items', 'documentable', 'parent']));
+        } catch (\Throwable $e) {
+            Log::error("Deposit markPaid error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors du paiement.',
+            ], 500);
         }
     }
 }

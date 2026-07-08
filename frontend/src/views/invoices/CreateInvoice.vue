@@ -1,7 +1,7 @@
 <!-- src/views/invoices/CreateInvoice.vue -->
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import axios from "axios";
 import { success, error, confirm } from "@/helpers/notifications";
@@ -14,9 +14,11 @@ import CustomSelect from "@/components/CustomSelect.vue";
 import CustomCombobox from "@/components/CustomCombobox.vue";
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 const isLoading = ref(false);
 const isSaving = ref(false);
+const isFromQuote = ref(false);
 
 const invoiceType = ref("STANDARD");
 
@@ -55,6 +57,7 @@ const form = reactive({
   deposit_input_value: 0,
   tax_rate: 20,
   deposit_description: "",
+  parent_document_id: null,
 });
 
 const errors = reactive({
@@ -81,9 +84,7 @@ const errors = reactive({
 const fetchLookups = async () => {
   isLoading.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
-    const params = companyId ? { company_id: companyId } : {};
-    const { data } = await axios.get("/api/invoices/create", { params });
+    const { data } = await axios.get("/api/invoices/create");
     lookupData.value = data;
     form.intro_text = data.defaults.intro_text || "";
     form.footer_text = data.defaults.footer_text || "";
@@ -134,6 +135,47 @@ const fetchLookups = async () => {
   }
 };
 
+const loadQuoteData = async (quoteId) => {
+  try {
+    const { data } = await axios.get(`/api/quotes/${quoteId}`);
+    const doc = data.document;
+    if (!doc) return;
+
+    isFromQuote.value = true;
+    invoiceType.value = "STANDARD";
+    form.customer_id = doc.customer_id;
+    form.bank_account_id = doc.bank_account_id;
+    form.parent_document_id = doc.id;
+    form.payment_condition = doc.payment_condition || form.payment_condition;
+    form.payment_mode = doc.payment_mode || form.payment_mode;
+    form.late_fee_interest = doc.late_fee_interest || form.late_fee_interest;
+    form.notes = doc.notes || "";
+    form.terms = doc.terms || "";
+    form.intro_text = doc.intro_text || form.intro_text;
+    form.footer_text = doc.footer_text || form.footer_text;
+    form.conclusion_text = doc.conclusion_text || form.conclusion_text;
+    form.global_discount_type = doc.global_discount_type || "percentage";
+    form.global_discount_value = doc.global_discount_value || 0;
+
+    form.items = (doc.items || []).map((item) => ({
+      product_id: item.product_id,
+      product_type: item.product_type,
+      designation: item.designation || item.description || "",
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      tax_rate: item.tax_rate,
+      discount_type: item.discount_type || "percentage",
+      discount_value: item.discount_value || 0,
+      showProductDropdown: false,
+      showTaxDropdown: false,
+      productSearch: "",
+      taxSearch: "",
+    }));
+  } catch (err) {
+    error("Erreur", "Impossible de charger les données du devis.");
+  }
+};
+
 const createItem = () => ({
   product_id: null,
   product_type: defaultProductTypeId.value,
@@ -149,12 +191,17 @@ const createItem = () => ({
   taxSearch: "",
 });
 
-const addLine = () => form.items.push(createItem());
+const addLine = () => {
+  if (isFromQuote.value) return;
+  form.items.push(createItem());
+};
 const removeLine = (index) => {
+  if (isFromQuote.value) return;
   if (form.items.length > 1) form.items.splice(index, 1);
 };
 
 const toggleProductDropdown = (index) => {
+  if (isFromQuote.value) return;
   const item = form.items[index];
   item.showProductDropdown = !item.showProductDropdown;
   if (item.showProductDropdown) {
@@ -165,6 +212,7 @@ const toggleProductDropdown = (index) => {
 };
 
 const toggleTaxDropdown = (index) => {
+  if (isFromQuote.value) return;
   const item = form.items[index];
   item.showTaxDropdown = !item.showTaxDropdown;
   if (item.showTaxDropdown) {
@@ -175,6 +223,7 @@ const toggleTaxDropdown = (index) => {
 };
 
 const selectProduct = (index, product) => {
+  if (isFromQuote.value) return;
   const item = form.items[index];
   item.product_id = product.id;
   item.designation = product.name;
@@ -187,6 +236,7 @@ const selectProduct = (index, product) => {
 };
 
 const selectTaxRate = (index, taxRate) => {
+  if (isFromQuote.value) return;
   const item = form.items[index];
   item.tax_rate = taxRate.rate;
   item.showTaxDropdown = false;
@@ -238,11 +288,8 @@ const totalHt = computed(() => {
     });
     return ht;
   } else {
-    // DEPOSIT
     let amount = 0;
     if (form.deposit_input_type === "percentage") {
-      // We treat percentage as the HT amount directly (since we have no base)
-      // So we just take the value as is.
       amount = parseFloat(form.deposit_input_value) || 0;
     } else {
       amount = parseFloat(form.deposit_input_value) || 0;
@@ -300,23 +347,28 @@ const fmt = (n) => {
   }).format(n);
 };
 
-const submit = async () => {
+const validateForm = () => {
   Object.keys(errors).forEach((key) => (errors[key] = ""));
   if (!form.customer_id) {
     errors.customer_id = "Veuillez sélectionner un client.";
-    return;
+    return false;
   }
   if (
     invoiceType.value === "STANDARD" &&
     form.items.some((i) => !i.designation.trim())
   ) {
     errors.items = "Toutes les lignes doivent avoir une désignation.";
-    return;
+    return false;
   }
   if (invoiceType.value === "DEPOSIT" && !form.deposit_input_value) {
     errors.deposit_input_value = "Veuillez saisir un montant pour l'acompte.";
-    return;
+    return false;
   }
+  return true;
+};
+
+const submit = async () => {
+  if (!validateForm()) return;
 
   const confirmed = await confirm(
     "Enregistrer la facture",
@@ -326,11 +378,7 @@ const submit = async () => {
 
   isSaving.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
-    const payload = { ...form, type: invoiceType.value };
-    if (companyId) {
-      payload.company_id = companyId;
-    }
+    const payload = { ...form, type: invoiceType.value, parent_document_id: form.parent_document_id || undefined };
     const response = await axios.post("/api/invoices", payload);
     success(
       "Facture enregistrée",
@@ -353,8 +401,44 @@ const submit = async () => {
   }
 };
 
-onMounted(() => {
-  fetchLookups();
+const saveAndFinalize = async () => {
+  if (!validateForm()) return;
+
+  const confirmed = await confirm(
+    "Finaliser la facture",
+    "La facture sera finalisée et un numéro lui sera attribué.",
+  );
+  if (!confirmed.isConfirmed) return;
+
+  isSaving.value = true;
+  try {
+    const payload = { ...form, type: invoiceType.value, parent_document_id: form.parent_document_id || undefined };
+    const response = await axios.post("/api/invoices", payload);
+    const createdDoc = response.data;
+    await axios.put(`/api/invoices/${createdDoc.id}/finalize`);
+    success("Finalisé !", `La facture ${createdDoc.number} a été finalisée.`);
+    router.push("/invoices");
+  } catch (err) {
+    if (err.response?.status === 422) {
+      const e = err.response.data.errors;
+      Object.keys(e).forEach((key) => {
+        if (key in errors) errors[key] = e[key][0];
+      });
+    } else {
+      errors.server = "Une erreur est survenue.";
+      error("Erreur", errors.server);
+    }
+  } finally {
+    isSaving.value = false;
+  }
+};
+
+onMounted(async () => {
+  await fetchLookups();
+  const quoteId = route.query.quote_id;
+  if (quoteId) {
+    await loadQuoteData(quoteId);
+  }
 });
 
 watch(invoiceType, (newVal) => {
@@ -486,6 +570,7 @@ watch(invoiceType, (newVal) => {
                   Lignes de la facture
                 </h3>
                 <button
+                  v-if="!isFromQuote"
                   type="button"
                   @click="addLine"
                   class="inline-flex items-center gap-2 px-3 py-1.5 bg-[#C5F82A] text-[#062121] rounded-lg text-xs font-bold hover:bg-[#b8e626] transition-colors"
@@ -550,7 +635,11 @@ watch(invoiceType, (newVal) => {
                               }, 200)
                             "
                             placeholder="— Saisie libre —"
-                            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none"
+                            :disabled="isFromQuote"
+                            :class="[
+                              'w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none',
+                              isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '',
+                            ]"
                           />
                           <div
                             v-if="item.showProductDropdown"
@@ -591,7 +680,11 @@ watch(invoiceType, (newVal) => {
                           v-model.number="item.quantity"
                           min="0.01"
                           step="0.01"
-                          class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none"
+                          :disabled="isFromQuote"
+                          :class="[
+                            'w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none',
+                            isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '',
+                          ]"
                         />
                       </td>
                       <td class="px-4 py-3">
@@ -600,7 +693,11 @@ watch(invoiceType, (newVal) => {
                           v-model.number="item.unit_price"
                           min="0"
                           step="0.01"
-                          class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none"
+                          :disabled="isFromQuote"
+                          :class="[
+                            'w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none',
+                            isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '',
+                          ]"
                         />
                       </td>
                       <td class="px-4 py-3 relative z-10">
@@ -617,7 +714,11 @@ watch(invoiceType, (newVal) => {
                             min="0"
                             max="100"
                             step="0.01"
-                            class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none"
+                            :disabled="isFromQuote"
+                            :class="[
+                              'w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none',
+                              isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '',
+                            ]"
                             placeholder="%"
                           />
                           <div
@@ -660,7 +761,11 @@ watch(invoiceType, (newVal) => {
                             v-model.number="item.discount_value"
                             min="0"
                             step="0.01"
-                            class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none"
+                            :disabled="isFromQuote"
+                            :class="[
+                              'w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none',
+                              isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '',
+                            ]"
                             placeholder="0.00"
                           />
                           <CustomSelect
@@ -673,6 +778,7 @@ watch(invoiceType, (newVal) => {
                             value-key="value"
                             placeholder="Type"
                             class="w-16"
+                            :disabled="isFromQuote"
                           />
                         </div>
                       </td>
@@ -684,6 +790,7 @@ watch(invoiceType, (newVal) => {
                       </td>
                       <td class="px-4 py-3 text-center">
                         <button
+                          v-if="!isFromQuote"
                           type="button"
                           @click="removeLine(index)"
                           :disabled="form.items.length === 1"
@@ -1015,6 +1122,14 @@ watch(invoiceType, (newVal) => {
                 class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg font-bold text-sm transition-all"
               >
                 Annuler
+              </button>
+              <button
+                type="button"
+                @click="saveAndFinalize"
+                :disabled="isSaving"
+                class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold text-white bg-[#C5F82A] text-[#062121] hover:opacity-90 transition-all disabled:opacity-50"
+              >
+                <i class="fas fa-check-circle"></i> Enregistrer & Finaliser
               </button>
               <button
                 type="submit"

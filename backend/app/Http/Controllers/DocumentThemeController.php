@@ -5,65 +5,63 @@ namespace App\Http\Controllers;
 use App\Models\DocumentTheme;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Log;
 
 class DocumentThemeController extends Controller
 {
-    protected function getCompanyId(Request $request)
+    public function show()
     {
-        return $request->input('company_id') ?? auth()->user()->currentCompanyId;
-    }
+        try {
+            $companyId = $this->getCompanyId();
+            $theme = DocumentTheme::where('company_id', $companyId)->first();
+            if (!$theme) {
+                $theme = DocumentTheme::create([
+                    'company_id' => $companyId,
+                    'font_family' => 'Nunito',
+                    'primary_color' => '#062121',
+                    'background_pattern' => 'none',
+                    'table_border_style' => 'sharp',
+                    'table_line_style' => 'standard',
+                ]);
+            }
 
-    public function show(Request $request)
-    {
-        $companyId = $this->getCompanyId($request);
-        if (!$companyId) {
-            return response()->json(['error' => 'Aucune entreprise trouvée'], 400);
+            return response()->json($theme);
+        } catch (\Throwable $e) {
+            Log::error('DocumentTheme show error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['success' => false, 'message' => 'Une erreur interne est survenue.'], 500);
         }
-
-        $theme = DocumentTheme::where('company_id', $companyId)->first();
-        if (!$theme) {
-            $theme = DocumentTheme::create([
-                'company_id' => $companyId,
-                'font_family' => 'Nunito',
-                'primary_color' => '#062121',
-                'background_pattern' => 'none',
-                'table_border_style' => 'sharp',
-                'table_line_style' => 'standard',
-            ]);
-        }
-
-        return response()->json($theme);
     }
 
     public function update(Request $request)
     {
-        $companyId = $this->getCompanyId($request);
-        if (!$companyId) {
-            return response()->json(['error' => 'Aucune entreprise trouvée'], 400);
-        }
+        try {
+            $companyId = $this->getCompanyId();
+            $theme = DocumentTheme::where('company_id', $companyId)->first();
+            if (!$theme) {
+                $theme = DocumentTheme::create([
+                    'company_id' => $companyId,
+                    'font_family' => 'Nunito',
+                    'primary_color' => '#062121',
+                    'background_pattern' => 'none',
+                    'table_border_style' => 'sharp',
+                    'table_line_style' => 'standard',
+                ]);
+            }
 
-        $theme = DocumentTheme::where('company_id', $companyId)->first();
-        if (!$theme) {
-            $theme = DocumentTheme::create([
-                'company_id' => $companyId,
-                'font_family' => 'Nunito',
-                'primary_color' => '#062121',
-                'background_pattern' => 'none',
-                'table_border_style' => 'sharp',
-                'table_line_style' => 'standard',
+            $validated = $request->validate([
+                'font_family' => 'sometimes|string|max:255',
+                'primary_color' => 'sometimes|string|max:7',
+                'background_pattern' => ['sometimes', Rule::in(['none', 'dots', 'lines', 'grid'])],
+                'table_border_style' => ['sometimes', Rule::in(['sharp', 'rounded', 'none'])],
+                'table_line_style' => ['sometimes', Rule::in(['standard', 'bold', 'dashed', 'none'])],
             ]);
+
+            $theme->update($validated);
+
+            return response()->json($theme);
+        } catch (\Throwable $e) {
+            Log::error('DocumentTheme update error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['success' => false, 'message' => 'Une erreur est survenue lors de la mise à jour.'], 500);
         }
-
-        $validated = $request->validate([
-            'font_family' => 'sometimes|string|max:255',
-            'primary_color' => 'sometimes|string|max:7',
-            'background_pattern' => ['sometimes', Rule::in(['none', 'dots', 'lines', 'grid'])],
-            'table_border_style' => ['sometimes', Rule::in(['sharp', 'rounded', 'none'])],
-            'table_line_style' => ['sometimes', Rule::in(['standard', 'bold', 'dashed', 'none'])],
-        ]);
-
-        $theme->update($validated);
-
-        return response()->json($theme);
     }
 }

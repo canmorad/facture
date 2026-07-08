@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\ImmutableDocumentException;
 use App\Models\Document;
 use App\Models\PurchaseOrder;
 use App\Models\Company;
@@ -9,21 +10,12 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaseOrderService
 {
-    protected ?int $companyId = null;
-
     public function __construct(
         protected DocumentCalculationService $calculationService,
         protected NumberingService $numberingService,
         protected DocumentService $documentService,
         protected DocumentItemService $documentItemService
-    ) {
-    }
-
-    public function setCompanyId(?int $companyId): self
-    {
-        $this->companyId = $companyId;
-        return $this;
-    }
+    ) {}
 
     public function getAll(?string $status = null)
     {
@@ -31,7 +23,7 @@ class PurchaseOrderService
 
         $query = Document::where('company_id', $companyId)
             ->where('documentable_type', PurchaseOrder::class)
-            ->with(['customer', 'items', 'documentable']);
+            ->with(['customer', 'items', 'documentable', 'parent']);
 
         if ($status && in_array($status, ['DRAFT', 'FINALIZED', 'SENT', 'CONFIRMED', 'CANCELLED'])) {
             $query->whereHas('documentable', function ($q) use ($status) {
@@ -88,11 +80,14 @@ class PurchaseOrderService
             $validated['global_discount_value'] ?? null
         );
 
-        return DB::transaction(function () use ($validated, $companyId, $calculated) {
+        DB::beginTransaction();
+
+        try {
             $document = $this->documentService->create([
                 'company_id' => $companyId,
                 'customer_id' => $validated['customer_id'],
                 'bank_account_id' => $validated['bank_account_id'] ?? null,
+                'parent_document_id' => $validated['parent_document_id'] ?? null,
                 'number' => null,
                 'total_ht' => $calculated['total_ht'],
                 'total_tva' => $calculated['total_tva'],
@@ -107,18 +102,17 @@ class PurchaseOrderService
                 'conclusion_text' => $validated['conclusion_text'] ?? null,
                 'documentable_type' => PurchaseOrder::class,
                 'documentable_id' => 0,
-                'payment_condition' => $validated['payment_condition'] ?? null,
-                'payment_mode' => $validated['payment_mode'] ?? null,
-                'late_fee_interest' => $validated['late_fee_interest'] ?? null,
+                'payment_condition' => null,
+                'payment_mode' => null,
+                'late_fee_interest' => null,
             ]);
 
-           $purchaseOrder = PurchaseOrder::create([
-    'status' => 'DRAFT',
-    'expected_date' => $validated['expected_date'] ?? null,
-    'confirmed_at' => null,
-]);
+            $po = PurchaseOrder::create([
+                'status' => 'DRAFT',
+                'expected_date' => $validated['expected_date'] ?? null,
+            ]);
 
-            $document->documentable_id = $purchaseOrder->id;
+            $document->documentable_id = $po->id;
             $document->save();
 
             $itemsWithTotals = [];
@@ -134,8 +128,13 @@ class PurchaseOrderService
 
             $this->documentItemService->createMany($document->id, $itemsWithTotals);
 
-            return $document->load('customer', 'items');
-        });
+            DB::commit();
+
+            return $document->load('customer', 'items', 'documentable', 'parent');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
     }
 
     public function finalize(int $id): Document
@@ -143,32 +142,153 @@ class PurchaseOrderService
         $document = $this->documentService->findOrFail($id);
 
         if ($document->documentable_type !== PurchaseOrder::class) {
-            throw new \InvalidArgumentException('Document is not a Purchase Order.');
+            throw new \InvalidArgumentException('Le document n\'est pas une commande fournisseur.');
         }
 
         $companyId = $this->getCompanyId();
-
         $number = $this->numberingService->generateNumber('purchase_order', $companyId);
 
-        return DB::transaction(function () use ($document, $number) {
+        DB::beginTransaction();
+
+        try {
             $this->documentService->updateNumber($document, $number);
 
-            $purchaseOrder = $document->documentable;
-            $purchaseOrder->status = 'FINALIZED';
-            $purchaseOrder->confirmed_at = now();
-            $purchaseOrder->save();
+            $po = $document->documentable;
+            $po->transitionTo('FINALIZED');
 
-            return $document->fresh(['customer', 'items', 'documentable']);
-        });
+            DB::commit();
+
+            return $document->fresh(['customer', 'items', 'documentable', 'parent']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    public function getAvailableActions(int $purchaseOrderId): array
+    {
+        $document = Document::with(['documentable', 'children'])
+            ->where('company_id', $this->getCompanyId())
+            ->where('documentable_type', PurchaseOrder::class)
+            ->findOrFail($purchaseOrderId);
+
+        $po = $document->documentable;
+        $status = $po->status;
+
+        $actions = [
+            'can_edit' => false,
+            'can_finalize' => false,
+            'can_send' => false,
+            'can_confirm' => false,
+            'can_download' => false,
+            'can_delete' => false,
+        ];
+
+        if ($status === 'DRAFT') {
+            $actions['can_edit'] = true;
+            $actions['can_finalize'] = true;
+            $actions['can_delete'] = $document->children()->count() === 0;
+        }
+
+        if ($status === 'FINALIZED') {
+            $actions['can_send'] = true;
+            $actions['can_confirm'] = true;
+            $actions['can_download'] = true;
+        }
+
+        if ($status === 'SENT') {
+            $actions['can_confirm'] = true;
+            $actions['can_download'] = true;
+        }
+
+        if ($status === 'CONFIRMED' || $status === 'CANCELLED') {
+            $actions['can_download'] = true;
+        }
+
+        return $actions;
+    }
+
+    public function updateMetadata(int $id, array $data): Document
+    {
+        $document = $this->documentService->findOrFail($id);
+
+        if ($document->documentable_type !== PurchaseOrder::class) {
+            throw new \InvalidArgumentException('Le document n\'est pas une commande fournisseur.');
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $document->update([
+                'notes' => $data['notes'] ?? $document->notes,
+                'terms' => $data['terms'] ?? $document->terms,
+                'intro_text' => $data['intro_text'] ?? $document->intro_text,
+                'footer_text' => $data['footer_text'] ?? $document->footer_text,
+                'conclusion_text' => $data['conclusion_text'] ?? $document->conclusion_text,
+            ]);
+
+            DB::commit();
+
+            return $document->fresh(['customer', 'items', 'documentable', 'parent']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    public function updateItems(int $id, array $items): Document
+    {
+        $document = $this->documentService->findOrFail($id);
+
+        if ($document->documentable_type !== PurchaseOrder::class) {
+            throw new \InvalidArgumentException('Le document n\'est pas une commande fournisseur.');
+        }
+
+        $document->guardImmutable();
+
+        $calculated = $this->calculationService->calculate(
+            $items,
+            $document->global_discount_type,
+            $document->global_discount_value
+        );
+
+        DB::beginTransaction();
+
+        try {
+            $document->items()->delete();
+
+            $itemsWithTotals = [];
+            foreach ($items as $idx => $item) {
+                $processed = $calculated['processed_items'][$idx];
+                $lineHt = $processed['line_ht'];
+                $lineTtc = $lineHt * (1 + $item['tax_rate'] / 100);
+                $itemsWithTotals[] = array_merge($item, [
+                    'calculated_ht' => $lineHt,
+                    'calculated_ttc' => $lineTtc,
+                ]);
+            }
+
+            $this->documentItemService->createMany($document->id, $itemsWithTotals);
+
+            $document->update([
+                'total_ht' => $calculated['total_ht'],
+                'total_tva' => $calculated['total_tva'],
+                'total_ttc' => $calculated['total_ttc'],
+                'global_discount_amount' => $calculated['global_discount_amount'],
+            ]);
+
+            DB::commit();
+
+            return $document->fresh(['customer', 'items', 'documentable', 'parent']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
     }
 
     protected function getCompanyId(): int
     {
-        if (!$this->companyId) {
-            throw new \RuntimeException('Aucune entreprise sélectionnée.');
-        }
-
-        return $this->companyId;
+        return config('app.current_company_id') ?? throw new \RuntimeException('Aucune entreprise sélectionnée.');
     }
 
     protected function getCompany(): Company

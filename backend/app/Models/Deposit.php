@@ -2,33 +2,47 @@
 
 namespace App\Models;
 
+use App\Models\Traits\HasStateMachine;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class Deposit extends Model
 {
+    use HasStateMachine;
+
+    protected static function getTransitions(): array
+    {
+        return [
+            'DRAFT' => ['FINALIZED'],
+            'FINALIZED' => ['PAID', 'CANCELLED'],
+            'PAID' => [],
+            'CANCELLED' => [],
+        ];
+    }
+
     protected $fillable = [
         'company_id',
         'quote_id',
         'status',
         'input_type',
         'input_value',
+        'finalized_at',
+        'paid_at',
     ];
 
     protected $casts = [
         'input_value' => 'float',
+        'finalized_at' => 'datetime',
+        'paid_at' => 'datetime',
     ];
-
-    public function document(): MorphOne
-    {
-        return $this->morphOne(Document::class, 'documentable');
-    }
 
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
     }
-    
+
+    public function quote(): BelongsTo
+    {
+        return $this->belongsTo(Quote::class);
+    }
 }

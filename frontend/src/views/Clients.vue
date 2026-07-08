@@ -8,7 +8,7 @@ import InputLabel from "../components/InputLabel.vue";
 import PrimaryButton from "../components/PrimaryButton.vue";
 import TextInput from "../components/TextInput.vue";
 import axios from "axios";
-import Swal from "sweetalert2";
+import { success, error, confirm } from "../helpers/notifications";
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -66,11 +66,7 @@ const fetchClients = async () => {
     const { data } = await axios.get("/api/customers", { params });
     clients.value = data;
   } catch {
-    Swal.fire({
-      title: "Erreur",
-      text: "Impossible de charger les clients.",
-      icon: "error",
-    });
+    error("Erreur", "Impossible de charger les clients.");
   } finally {
     isLoadingClients.value = false;
   }
@@ -131,20 +127,10 @@ const submitClient = async () => {
   try {
     if (editingClientId.value) {
       await axios.put(`/api/customers/${editingClientId.value}`, payload);
-      Swal.fire({
-        title: "Client modifié !",
-        text: "Le client a été modifié avec succès.",
-        icon: "success",
-        confirmButtonColor: "#062121",
-      });
+      success("Client modifié !", "Le client a été modifié avec succès.");
     } else {
       await axios.post("/api/customers", payload);
-      Swal.fire({
-        title: "Client ajouté !",
-        text: "Le client a été enregistré avec succès.",
-        icon: "success",
-        confirmButtonColor: "#062121",
-      });
+      success("Client ajouté !", "Le client a été enregistré avec succès.");
     }
     resetForm();
     await fetchClients();
@@ -165,23 +151,14 @@ const submitClient = async () => {
 };
 
 const deleteClient = async (id, name) => {
-  const result = await Swal.fire({
-    title: "Êtes-vous sûr ?",
-    text: `Supprimer "${name}" définitivement ?`,
-    icon: "warning",
-    showCancelButton: true,
-    confirmButtonColor: "#d33",
-    cancelButtonColor: "#64748B",
-    confirmButtonText: "Oui, supprimer",
-    cancelButtonText: "Annuler",
-  });
+  const result = await confirm("Êtes-vous sûr ?", `Supprimer "${name}" définitivement ?`);
   if (!result.isConfirmed) return;
   try {
     await axios.delete(`/api/customers/${id}`);
-    Swal.fire("Supprimé !", "Le client a été supprimé.", "success");
+    success("Supprimé !", "Le client a été supprimé.");
     await fetchClients();
   } catch {
-    Swal.fire("Erreur", "Impossible de supprimer le client.", "error");
+    error("Erreur", "Impossible de supprimer le client.");
   }
 };
 
@@ -398,22 +375,6 @@ onMounted(() => {
                     </td>
                     <td class="px-4 py-4 text-right">
                       <div class="flex items-center justify-end gap-2">
-                        <button
-                          @click="createInvoice(client)"
-                          title="Nouvelle Facture"
-                          class="relative w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all duration-200"
-                        >
-                          <i class="fas fa-file-invoice text-sm"></i>
-                        </button>
-
-                        <button
-                          @click="createDevis(client)"
-                          title="Nouveau Devis"
-                          class="relative w-8 h-8 rounded-lg bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white transition-all duration-200"
-                        >
-                          <i class="fas fa-calculator text-sm"></i>
-                        </button>
-
                         <button
                           @click="editClient(client)"
                           title="Modifier"

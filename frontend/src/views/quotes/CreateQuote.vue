@@ -70,9 +70,7 @@ const errors = reactive({
 const fetchLookups = async () => {
   isLoading.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
-    const params = companyId ? { company_id: companyId } : {};
-    const { data } = await axios.get("/api/quote/create", { params });
+    const { data } = await axios.get("/api/quote/create");
     lookupData.value = data;
     form.intro_text = data.defaults.intro_text || "";
     form.footer_text = data.defaults.footer_text || "";
@@ -275,15 +273,15 @@ const submit = async () => {
 
   isSaving.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
     const payload = { ...form };
-    if (companyId) {
-      payload.company_id = companyId;
-    }
     await axios.post("/api/quotes", payload);
     success("Devis enregistré", "Le devis a été enregistré en tant que brouillon.");
     router.push("/quote");
   } catch (err) {
+    console.error("Erreur complète :", err);
+    console.error("Status :", err.response?.status);
+    console.error("Data :", err.response?.data);
+    console.error("Message :", err.message);
     if (err.response?.status === 422) {
       const e = err.response.data.errors;
       Object.keys(e).forEach((key) => {
@@ -296,6 +294,22 @@ const submit = async () => {
   } finally {
     isSaving.value = false;
   }
+};
+
+const hideProductDropdownWithDelay = (index) => {
+  window.setTimeout(() => {
+    if (form.items[index]) {
+      form.items[index].showProductDropdown = false;
+    }
+  }, 200);
+};
+
+const hideTaxDropdownWithDelay = (index) => {
+  window.setTimeout(() => {
+    if (form.items[index]) {
+      form.items[index].showTaxDropdown = false;
+    }
+  }, 200);
 };
 
 onMounted(() => {
@@ -458,11 +472,7 @@ onMounted(() => {
                             type="text"
                             v-model="item.designation"
                             @focus="toggleProductDropdown(index)"
-                            @blur="
-                              setTimeout(() => {
-                                item.showProductDropdown = false;
-                              }, 200)
-                            "
+                            @blur="hideProductDropdownWithDelay(index)"
                             placeholder="— Saisie libre —"
                             class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none"
                           />
@@ -526,11 +536,7 @@ onMounted(() => {
                             type="number"
                             v-model.number="item.tax_rate"
                             @focus="toggleTaxDropdown(index)"
-                            @blur="
-                              setTimeout(() => {
-                                item.showTaxDropdown = false;
-                              }, 200)
-                            "
+                            @blur="hideTaxDropdownWithDelay(index)"
                             min="0"
                             max="100"
                             step="0.01"

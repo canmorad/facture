@@ -1,26 +1,33 @@
-// stores/auth.js
 import { defineStore } from 'pinia'
 import axios from 'axios'
 
 export const useAuthStore = defineStore('auth', {
-  state: () => ({
-    user: null,
-    emailVerified: false,
-    hasCompany: false,
-    hasNumbering: false,
-    isAuthenticated: false,
-    companies: [],
-    currentCompanyId: null,
-  }),
+  state: () => {
+    const storedId = localStorage.getItem('current_company_id')
+    return {
+      user: null,
+      permissions: [],
+      emailVerified: false,
+      hasCompany: false,
+      hasNumbering: false,
+      isAuthenticated: false,
+      companies: [],
+      currentCompanyId: storedId ? Number(storedId) : null,
+    }
+  },
   getters: {
     currentCompany: (state) => {
       if (!state.currentCompanyId || !state.companies.length) return null
       return state.companies.find(c => c.id === state.currentCompanyId) || null
     },
+    isOwner: (state) => {
+      return state.user?.is_owner ?? false
+    },
   },
   actions: {
     setAuthData(data) {
       this.user = data.user || null
+      this.permissions = data.permissions || []
       this.emailVerified = data.email_verified ?? false
       this.hasCompany = data.has_company ?? false
       this.hasNumbering = data.has_numbering ?? false
@@ -44,6 +51,7 @@ export const useAuthStore = defineStore('auth', {
     },
     clearAuth() {
       this.user = null
+      this.permissions = []
       this.emailVerified = false
       this.hasCompany = false
       this.hasNumbering = false
@@ -54,7 +62,11 @@ export const useAuthStore = defineStore('auth', {
     },
     async fetchAuthStatus() {
       try {
-        const response = await axios.get('/api/user-status', { withCredentials: true })
+        const config = { withCredentials: true }
+        if (this.currentCompanyId) {
+          config.headers = { 'X-Company-Id': String(this.currentCompanyId) }
+        }
+        const response = await axios.get('/api/user-status', config)
         this.setAuthData(response.data)
       } catch (error) {
         if (error.response && error.response.status === 401) {
@@ -64,10 +76,11 @@ export const useAuthStore = defineStore('auth', {
         }
       }
     },
-    setActiveCompany(companyId) {
+    async setActiveCompany(companyId) {
       if (this.companies.some(c => c.id === companyId)) {
         this.currentCompanyId = companyId
         this.persistCompanyId(companyId)
+        await this.fetchAuthStatus()
       }
     },
     addCompany(company) {
@@ -119,6 +132,21 @@ export const useAuthStore = defineStore('auth', {
         return true
       }
       return false
+    },
+    can(permission) {
+      if (this.isOwner) {
+        return true
+      }
+      return this.permissions.includes(permission)
+    },
+    async logout() {
+      try {
+        await axios.post('/api/logout')
+      } catch {
+        // ignore network errors during logout
+      }
+      this.clearAuth()
+      window.location.href = '/login'
     },
   },
 })

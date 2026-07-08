@@ -6,7 +6,7 @@ import InputLabel from "../components/InputLabel.vue";
 import PrimaryButton from "../components/PrimaryButton.vue";
 import TextInput from "../components/TextInput.vue";
 import axios from "axios";
-import Swal from "sweetalert2";
+import { success, error, confirm, toast } from "../helpers/notifications";
 
 // ========== État principal ==========
 const activeTab = ref("list");
@@ -96,11 +96,7 @@ const fetchInvoices = async () => {
     const { data } = await axios.get("/api/purchase-invoices");
     invoices.value = data;
   } catch {
-    Swal.fire({
-      title: "Erreur",
-      text: "Impossible de charger les factures d'achat.",
-      icon: "error",
-    });
+    error("Erreur", "Impossible de charger les factures d'achat.");
   } finally {
     isLoadingInvoices.value = false;
   }
@@ -112,11 +108,7 @@ const fetchSuppliers = async () => {
     const { data } = await axios.get("/api/fournisseurs");
     suppliers.value = data;
   } catch {
-    Swal.fire({
-      title: "Erreur",
-      text: "Impossible de charger les fournisseurs.",
-      icon: "error",
-    });
+    error("Erreur", "Impossible de charger les fournisseurs.");
   } finally {
     isLoadingSuppliers.value = false;
   }
@@ -128,11 +120,7 @@ const fetchProducts = async () => {
     const { data } = await axios.get("/api/products");
     products.value = data;
   } catch {
-    Swal.fire({
-      title: "Erreur",
-      text: "Impossible de charger les produits.",
-      icon: "error",
-    });
+    error("Erreur", "Impossible de charger les produits.");
   } finally {
     isLoadingProducts.value = false;
   }
@@ -176,20 +164,10 @@ const submitInvoice = async () => {
   try {
     if (editingInvoiceId.value) {
       await axios.put(`/api/purchase-invoices/${editingInvoiceId.value}`, form);
-      Swal.fire({
-        title: "Facture modifiée !",
-        text: "La facture d'achat a été modifiée avec succès.",
-        icon: "success",
-        confirmButtonColor: "#062121",
-      });
+      success("Facture modifiée !", "La facture d'achat a été modifiée avec succès.");
     } else {
       await axios.post("/api/purchase-invoices", form);
-      Swal.fire({
-        title: "Facture ajoutée !",
-        text: "La facture d'achat a été enregistrée avec succès et le stock a été mis à jour.",
-        icon: "success",
-        confirmButtonColor: "#062121",
-      });
+      success("Facture ajoutée !", "La facture d'achat a été enregistrée avec succès et le stock a été mis à jour.");
     }
 
     resetForm();
@@ -210,28 +188,15 @@ const submitInvoice = async () => {
 };
 
 const deleteInvoice = async (id, number) => {
-  const result = await Swal.fire({
-    title: "Êtes-vous sûr ?",
-    text: `Supprimer la facture "${number}" définitivement ?`,
-    icon: "warning",
-    showCancelButton: true,
-    confirmButtonColor: "#d33",
-    cancelButtonColor: "#64748B",
-    confirmButtonText: "Oui, supprimer",
-    cancelButtonText: "Annuler",
-  });
+  const result = await confirm("Êtes-vous sûr ?", `Supprimer la facture "${number}" définitivement ?`);
   if (!result.isConfirmed) return;
 
   try {
     await axios.delete(`/api/purchase-invoices/${id}`);
-    Swal.fire(
-      "Supprimée !",
-      "La facture a été supprimée et le stock ajusté.",
-      "success",
-    );
+    success("Supprimée !", "La facture a été supprimée et le stock ajusté.");
     await fetchInvoices();
   } catch {
-    Swal.fire("Erreur", "Impossible de supprimer la facture.", "error");
+    error("Erreur", "Impossible de supprimer la facture.");
   }
 };
 
@@ -281,16 +246,7 @@ const createProductAndSelect = async () => {
       onProductSelect(rowIndex);
     }
 
-    Swal.fire({
-      title: "Produit ajouté !",
-      text: "Le produit a été créé et sélectionné automatiquement.",
-      icon: "success",
-      toast: true,
-      position: "top-end",
-      showConfirmButton: false,
-      timer: 2500,
-      timerProgressBar: true,
-    });
+    toast("Produit ajouté !", "Le produit a été créé et sélectionné automatiquement.");
 
     closeProductModal();
   } catch (error) {
@@ -309,12 +265,7 @@ const createProductAndSelect = async () => {
     } else {
       productModalErrors.server = "Impossible d'ajouter le produit.";
     }
-    Swal.fire({
-      title: "Erreur",
-      text: productModalErrors.server || "Vérifiez les champs.",
-      icon: "error",
-      confirmButtonColor: "#062121",
-    });
+    error("Erreur", productModalErrors.server || "Vérifiez les champs.");
   } finally {
     isCreatingProduct.value = false;
   }

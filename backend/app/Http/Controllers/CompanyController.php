@@ -8,6 +8,7 @@ use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use App\Traits\MediaUpload;
+use Illuminate\Support\Facades\Gate;
 
 class CompanyController extends Controller
 {
@@ -80,8 +81,8 @@ class CompanyController extends Controller
 
     public function update(Request $request)
     {
+        Gate::authorize('view-settings');
         $request->validate([
-            'company_id' => 'required|exists:Companies,id',
             'company_name' => 'required|string|max:255',
             'logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'signature' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
@@ -100,7 +101,12 @@ class CompanyController extends Controller
         ]);
 
         $user = auth()->user();
-        $company = Company::find($request->company_id);
+        $companyId = config('app.current_company_id');
+        $company = Company::find($companyId);
+
+        if (!$company) {
+            return response()->json(['error' => 'Entreprise introuvable.'], 404);
+        }
 
         $userCompany = UserCompany::where('user_id', $user->id)
             ->where('company_id', $company->id)
@@ -150,7 +156,8 @@ class CompanyController extends Controller
 
     public function show(Request $request)
     {
-        $companyId = $request->input('company_id') ?? auth()->user()->currentCompanyId;
+        Gate::authorize('view-settings');
+        $companyId = config('app.current_company_id');
 
         if (!$companyId) {
             return response()->json(null, 200);
