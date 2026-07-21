@@ -10,6 +10,9 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\Auth\UserStatusController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\Auth\NewPasswordController;
+use App\Http\Controllers\Auth\PasswordResetLinkController;
+use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Http\Request;
 use App\Http\Controllers\PurchaseInvoiceController;
 use App\Http\Controllers\NumberingSerieController;
@@ -43,11 +46,57 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
+// ============================================
+// PUBLIC AUTHENTICATION ROUTES
+// ============================================
+// These routes do not require authentication
+Route::post('/register', [RegisteredUserController::class, 'store']);
+
+Route::post('/login', [AuthenticatedSessionController::class, 'store']);
+
+Route::post('/forgot-password', [PasswordResetLinkController::class, 'store']);
+
+Route::post('/reset-password', [NewPasswordController::class, 'store']);
+
+Route::get('/verify-email/{id}/{hash}', VerifyEmailController::class)
+    ->middleware(['auth:sanctum', 'signed', 'throttle:6,1']);
+
+Route::post('/email/verification-notification', function (Request $request) {
+    $request->user()->sendEmailVerificationNotification();
+    return response()->json(['message' => 'Verification link sent']);
+})->middleware(['auth:sanctum', 'throttle:6,1']);
+
+Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
+    ->middleware('auth:sanctum');
+
+// ============================================
+// PROTECTED AUTHENTICATION ROUTES
+// ============================================
+// User profile routes (auth:sanctum only, no company check required)
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/user-status', UserStatusController::class);
+
+    Route::get('/user/profile', [ProfileController::class, 'getProfile']);
+    Route::put('/user/profile', [ProfileController::class, 'updateProfile']);
+    Route::put('/user/password', [ProfileController::class, 'updatePassword']);
+
+    Route::get('/user-companies', function (Request $request) {
+        $user = $request->user();
+        $companies = $user->companies()->get();
+        return response()->json($companies);
+    });
+});
+
+// ============================================
+// INVITATION ROUTES
+// ============================================
 Route::get('/invitations/verify/{token}', [InvitationController::class, 'verify']);
 Route::post('/invitations/accept', [InvitationController::class, 'accept']);
-Route::middleware(['auth:web'])->post('/invitations/accept-existing', [InvitationController::class, 'acceptForExistingUser']);
+Route::middleware(['auth:sanctum'])->post('/invitations/accept-existing', [InvitationController::class, 'acceptForExistingUser']);
 
-// Debug route to test CORS and redirects
+// ============================================
+// DEBUG ROUTE
+// ============================================
 Route::get('/debug-test', function () {
     return response()->json([
         'message' => 'Debug test successful',
@@ -56,49 +105,32 @@ Route::get('/debug-test', function () {
     ]);
 });
 
-// Public authentication routes (without auth middleware)
-Route::post('/login', [AuthenticatedSessionController::class, 'store']);
-
-Route::post('/register', [RegisteredUserController::class, 'store']);
-
-Route::middleware('auth:web')->get('/user-status', UserStatusController::class);
-
-Route::post('/email/verification-notification', function (Request $request) {
-    $request->user()->sendEmailVerificationNotification();
-    return response()->json(['message' => 'Verification link sent']);
-})->middleware(['auth:web', 'throttle:6,1']);
-
-Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
-    ->middleware('auth:web');
-
-// User profile routes (auth:web only, no company check required)
-Route::middleware(['auth:web'])->group(function () {
-    Route::get('/user/profile', [ProfileController::class, 'getProfile']);
-    Route::put('/user/profile', [ProfileController::class, 'updateProfile']);
-    Route::put('/user/password', [ProfileController::class, 'updatePassword']);
-});
-
-Route::middleware(['auth:web'])->get('/user-companies', function (Request $request) {
-    $user = $request->user();
-    $companies = $user->companies()->get();
-    return response()->json($companies);
-});
-
-Route::middleware(['auth:web', 'check.company'])->group(function () {
+// ============================================
+// PROTECTED COMPANY ROUTES
+// ============================================
+// All routes below require authentication AND a valid company context
+Route::middleware(['auth:sanctum', 'check.company'])->group(function () {
+    // Tax Rates
     Route::apiResource('tax-rates', TaxRateController::class)->except(['destroy']);
     Route::delete('tax-rates/{id}', [TaxRateController::class, 'destroy']);
     Route::patch('tax-rates/{id}/toggle', [TaxRateController::class, 'toggleStatus']);
 
+    // Document Settings
     Route::get('/document-settings/{type}', [DocumentSettingController::class, 'show']);
     Route::post('/document-settings', [DocumentSettingController::class, 'storeOrUpdate']);
 
+    // Customers
     Route::apiResource('customers', CustomerController::class);
+
+    // Product Categories
     Route::apiResource('product-categories', ProductCategoryController::class);
 
+    // Numbering Series
     Route::get('/numbering-serie', [NumberingSerieController::class, 'show']);
     Route::post('/numbering-serie', [NumberingSerieController::class, 'store']);
     Route::put('/numbering-serie', [NumberingSerieController::class, 'update']);
 
+    // Delivery Notes
     Route::get('/delivery-notes/create', [DeliveryNoteController::class, 'create']);
     Route::post('/delivery-notes', [DeliveryNoteController::class, 'store']);
     Route::put('/delivery-notes/{id}/finalize', [DeliveryNoteController::class, 'finalize']);
@@ -111,6 +143,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::get('/delivery-notes', [DeliveryNoteController::class, 'index']);
     Route::get('/delivery-notes/{id}', [DeliveryNoteController::class, 'show']);
 
+    // Invoices
     Route::get('/invoices/create', [InvoiceController::class, 'create']);
     Route::post('/invoices', [InvoiceController::class, 'store']);
     Route::put('/invoices/{id}/finalize', [InvoiceController::class, 'finalize']);
@@ -130,7 +163,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::get('/invoices/{id}/payments', [PaymentController::class, 'getByInvoice']);
     Route::get('/invoices/{id}/payment-summary', [PaymentController::class, 'getPaymentSummary']);
 
-    // Payment routes
+    // Payments
     Route::prefix('payments')->group(function () {
         Route::get('/create', [PaymentController::class, 'getCreationData']);
         Route::get('/', [PaymentController::class, 'index']);
@@ -143,6 +176,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
         Route::get('/documents/{documentId}/payment-summary', [PaymentController::class, 'getPaymentSummary']);
     });
 
+    // Credit Notes
     Route::get('/credit-notes/create', [CreditNoteController::class, 'create']);
     Route::post('/credit-notes', [CreditNoteController::class, 'store']);
     Route::put('/credit-notes/{id}/finalize', [CreditNoteController::class, 'finalize']);
@@ -152,6 +186,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::get('/credit-notes', [CreditNoteController::class, 'index']);
     Route::get('/credit-notes/{id}', [CreditNoteController::class, 'show']);
 
+    // Deposits
     Route::get('/deposits/create', [DepositController::class, 'create']);
     Route::get('/deposits/remaining-balance/{id}', [DepositController::class, 'remainingBalance']);
     Route::post('/deposits', [DepositController::class, 'store']);
@@ -160,7 +195,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::get('/deposits', [DepositController::class, 'index']);
     Route::get('/deposits/{id}', [DepositController::class, 'show']);
 
-    // Balance invoice routes
+    // Balance Invoices
     Route::get('/balance-invoices/create', [BalanceInvoiceController::class, 'create']);
     Route::get('/balance-invoices/balance-data/{quoteId}', [BalanceInvoiceController::class, 'getBalanceData']);
     Route::post('/balance-invoices', [BalanceInvoiceController::class, 'store']);
@@ -169,18 +204,21 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::get('/balance-invoices', [BalanceInvoiceController::class, 'index']);
     Route::get('/balance-invoices/{id}', [BalanceInvoiceController::class, 'show']);
 
+    // Products
     Route::get('/products', [ProductController::class, 'index']);
     Route::post('/products', [ProductController::class, 'store']);
     Route::delete('/products/{id}', [ProductController::class, 'destroy']);
     Route::put('/products/{id}', [ProductController::class, 'update']);
     Route::get('/products/create', [ProductController::class, 'create']);
 
+    // Companies
     Route::post('/companies', [CompanyController::class, 'store']);
     Route::post('/company-settings', [CompanyController::class, 'update']);
     Route::get('/company-settings', [CompanyController::class, 'show']);
     Route::get('/user/organizations', [CompanyController::class, 'userOrganizations']);
     Route::delete('/organizations/{id}/leave', [CompanyController::class, 'leaveOrganization']);
 
+    // Quotes
     Route::get('/quote/create', [QuoteController::class, 'create']);
     Route::post('/quotes', [QuoteController::class, 'store']);
     Route::put('/quotes/{id}/finalize', [QuoteController::class, 'finalize']);
@@ -198,7 +236,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::get('/quotes', [QuoteController::class, 'index']);
     Route::put('/quotes/{id}', [QuoteController::class, 'update']);
 
-    // Proforma routes
+    // Proformas
     Route::get('/proformas/create', [ProformaController::class, 'create']);
     Route::post('/proformas', [ProformaController::class, 'store']);
     Route::put('/proformas/{id}/finalize', [ProformaController::class, 'finalize']);
@@ -213,11 +251,14 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::get('/proformas/{id}', [ProformaController::class, 'show']);
     Route::get('/proformas/{id}/ancestor-chain', [ProformaController::class, 'ancestorChain']);
 
+    // Document Sending
     Route::post('/documents/send', [SendDocumentController::class, 'send']);
 
+    // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/dashboard/tva-report', TvaReportController::class);
 
+    // Users
     Route::get('/company/users', [UserController::class, 'index']);
     Route::post('/company/users/invite', [UserController::class, 'invite']);
     Route::get('/company/users/available', [UserController::class, 'getAvailableUsers']);
@@ -225,6 +266,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::patch('/company/users/{id}/toggle-status', [UserController::class, 'toggleStatus']);
     Route::delete('/company/users/{id}', [UserController::class, 'destroy']);
 
+    // Purchase Orders
     Route::get('/purchase-orders/create', [PurchaseOrderController::class, 'create']);
     Route::post('/purchase-orders', [PurchaseOrderController::class, 'store']);
     Route::put('/purchase-orders/{id}/finalize', [PurchaseOrderController::class, 'finalize']);
@@ -236,6 +278,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::get('/purchase-orders/{id}', [PurchaseOrderController::class, 'show']);
     Route::get('/purchase-orders/{id}/ancestor-chain', [PurchaseOrderController::class, 'ancestorChain']);
 
+    // Purchase Invoices
     Route::get('/purchase-invoices/create', [PurchaseInvoiceController::class, 'create']);
     Route::put('/purchase-invoices/{id}/validate', [PurchaseInvoiceController::class, 'validate']);
     Route::put('/purchase-invoices/{id}/mark-paid', [PurchaseInvoiceController::class, 'markPaid']);
@@ -244,12 +287,14 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::post('/purchase-invoices/analyze', [PurchaseInvoiceController::class, 'analyze'])->name('purchase-invoices.analyze');
     Route::apiResource('purchase-invoices', PurchaseInvoiceController::class);
 
+    // Recurring Invoices
     Route::get('/recurring-invoices', [RecurringInvoiceController::class, 'index']);
     Route::post('/recurring-invoices', [RecurringInvoiceController::class, 'store']);
     Route::get('/recurring-invoices/{id}', [RecurringInvoiceController::class, 'show']);
     Route::put('/recurring-invoices/{id}', [RecurringInvoiceController::class, 'update']);
     Route::delete('/recurring-invoices/{id}', [RecurringInvoiceController::class, 'destroy']);
 
+    // Expenses
     Route::get('/expenses/create', [ExpenseController::class, 'getCreationData']);
     Route::get('/expenses', [ExpenseController::class, 'index']);
     Route::post('/expenses', [ExpenseController::class, 'store']);
@@ -257,11 +302,13 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::patch('/expenses/{id}/toggle-status', [ExpenseController::class, 'toggleStatus']);
     Route::delete('/expenses/{id}', [ExpenseController::class, 'destroy']);
 
+    // Suppliers
     Route::get('/suppliers', [SupplierController::class, 'index']);
     Route::post('/suppliers', [SupplierController::class, 'store']);
     Route::put('/suppliers/{id}', [SupplierController::class, 'update']);
     Route::delete('/suppliers/{id}', [SupplierController::class, 'destroy']);
 
+    // Cash Registers
     Route::get('/cash-registers/create', [CashRegisterController::class, 'create']);
     Route::get('/cash-registers/all', [CashRegisterController::class, 'getAll']);
     Route::get('/cash-registers/{id}/dashboard', [CashRegisterController::class, 'dashboard']);
@@ -276,6 +323,7 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::delete('/cash-registers/transactions/{id}', [CashRegisterController::class, 'deleteTransaction']);
     Route::apiResource('cash-registers', CashRegisterController::class);
 
+    // Bank Remittances
     Route::get('/bank-remittances/create', [BankRemittanceController::class, 'create']);
     Route::get('/bank-remittances/pending-documents', [BankRemittanceController::class, 'pendingDocuments']);
     Route::get('/bank-remittances/{id}/preview', [BankRemittancePreviewController::class, 'show']);
@@ -287,16 +335,20 @@ Route::middleware(['auth:web', 'check.company'])->group(function () {
     Route::delete('/bank-remittances/{id}/documents/{documentId}', [BankRemittanceController::class, 'removeDocument']);
     Route::apiResource('bank-remittances', BankRemittanceController::class)->except(['destroy']);
 
+    // Payment Documents
     Route::put('/payment-documents/{id}/mark-returned', [PaymentDocumentController::class, 'markReturned']);
     Route::put('/payment-documents/{id}/mark-paid', [PaymentDocumentController::class, 'markPaid']);
     Route::apiResource('payment-documents', PaymentDocumentController::class);
 
+    // Document Theme
     Route::get('/document-theme', [DocumentThemeController::class, 'show']);
     Route::put('/document-theme', [DocumentThemeController::class, 'update']);
 
+    // Documents
     Route::delete('/documents/{id}', [DocumentController::class, 'destroy']);
     Route::get('/documents/{id}/preview', [DocumentPreviewController::class, 'show']);
 
+    // Company-scoped routes
     Route::prefix('companies/{company}')->group(function () {
         Route::apiResource('product-categories', ProductCategoryController::class);
 
