@@ -78,6 +78,54 @@ class InvitationService
         return $user;
     }
 
+    public function acceptForExistingUser(User $user, string $token): array
+    {
+        $invitation = Invitation::where('token', $token)->firstOrFail();
+
+        if ($invitation->isExpired()) {
+            $invitation->delete();
+            throw new \RuntimeException('Cette invitation a expiré.');
+        }
+
+        // Check if the invitation email matches the user's email
+        if ($invitation->email !== $user->email) {
+            throw new \RuntimeException('Cette invitation n\'est pas destinée à votre adresse email.');
+        }
+
+        // Check if already linked to this company
+        $existingMembership = UserCompany::where('user_id', $user->id)
+            ->where('company_id', $invitation->company_id)
+            ->first();
+
+        if ($existingMembership) {
+            $company = $invitation->company;
+            $role = $existingMembership->role;
+            $invitation->delete();
+            return [
+                'company' => array_merge($company->toArray(), ['role' => $role->toArray()]),
+                'user' => $user->load('companies'),
+                'already_linked' => true,
+            ];
+        }
+
+        // Create the company membership
+        UserCompany::create([
+            'user_id' => $user->id,
+            'company_id' => $invitation->company_id,
+            'role_id' => $invitation->role_id,
+        ]);
+
+        $company = $invitation->company;
+        $role = Role::find($invitation->role_id);
+        $invitation->delete();
+
+        return [
+            'company' => array_merge($company->toArray(), ['role' => $role->toArray()]),
+            'user' => $user->load('companies'),
+            'already_linked' => false,
+        ];
+    }
+
     protected function handleExistingUser(User $user, Company $company, Role $role): array
     {
         $existingMembership = UserCompany::where('user_id', $user->id)

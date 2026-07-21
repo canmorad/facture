@@ -197,6 +197,7 @@
                   class="mt-1 block w-full"
                   v-model="form.iban"
                   placeholder="Ex: MA1234567890123456789012345678"
+                  maxlength="34"
                 />
                 <InputError class="mt-2" :message="errors.iban" />
               </div>
@@ -209,6 +210,7 @@
                   class="mt-1 block w-full"
                   v-model="form.swift"
                   placeholder="Ex: BCMAMAMC"
+                  maxlength="11"
                 />
                 <InputError class="mt-2" :message="errors.swift" />
               </div>
@@ -221,6 +223,7 @@
                   class="mt-1 block w-full"
                   v-model="form.currency"
                   placeholder="MAD"
+                  maxlength="3"
                 />
                 <InputError class="mt-2" :message="errors.currency" />
               </div>

@@ -15,6 +15,8 @@ class NumberingService
         'balance_invoice' => 'FS',
         'delivery_note' => 'BL',
         'purchase_order' => 'BC',
+        'bank_remittance' => 'RB',
+        'proforma' => 'FP',
     ];
 
     public function generateNumber(string $type, int $companyId): string

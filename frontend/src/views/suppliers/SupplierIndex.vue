@@ -80,9 +80,17 @@ const submit = async () => {
   } catch (err) {
     if (err.response && err.response.status === 422) {
       const validationErrors = err.response.data.errors;
-      Object.keys(validationErrors).forEach((key) => {
-        if (errors[key] !== undefined) errors[key] = validationErrors[key][0];
-      });
+      // Handle Laravel validation errors format
+      if (validationErrors && typeof validationErrors === 'object') {
+        Object.keys(validationErrors).forEach((key) => {
+          if (errors[key] !== undefined) errors[key] = validationErrors[key][0];
+        });
+      } else if (err.response.data?.message) {
+        // Handle simple message format (from our custom exceptions)
+        errors.server = err.response.data.message;
+      } else {
+        errors.server = "Une erreur est survenue lors de l'enregistrement.";
+      }
     } else {
       errors.server = "Une erreur est survenue lors de l'enregistrement.";
       error("Erreur", "Impossible d'enregistrer le fournisseur.");

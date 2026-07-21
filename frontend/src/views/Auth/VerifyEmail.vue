@@ -43,7 +43,7 @@ const resendVerification = async () => {
   verificationStatus.value = null;
 
   try {
-    await axios.post("/email/verification-notification");
+    await axios.post("/api/email/verification-notification");
     verificationStatus.value = {
       type: "success",
       message:
@@ -62,7 +62,7 @@ const resendVerification = async () => {
 
 const logout = async () => {
   try {
-    await axios.post("/logout");
+    await axios.post("/api/logout");
     authStore.clearAuth();
     router.push({ name: "login" });
   } catch (error) {

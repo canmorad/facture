@@ -12,16 +12,17 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->statefulApi();
+
+        // Note: statefulApi() already handles session middleware for stateful API routes
+        // We only need to add CSRF validation middleware for POST/PUT/DELETE requests
         $middleware->api(prepend: [
-            \Illuminate\Http\Middleware\HandleCors::class,
-            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+            \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
         ]);
 
+        // Register middleware aliases
         $middleware->alias([
-            'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
-            'has.company' => \App\Http\Middleware\EnsureHasCompany::class,
             'check.company' => \App\Http\Middleware\CheckCompanyHeader::class,
-            'owner' => \App\Http\Middleware\CheckIfOwner::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

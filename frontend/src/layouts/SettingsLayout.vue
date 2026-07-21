@@ -34,6 +34,9 @@ const goToDashboard = () => {
 };
 
 onMounted(async () => {
+  // Wait for auth to be fully initialized before reloading companies
+  await authStore.fetchAuthStatus().catch(() => {})
+
   if (authStore.isAuthenticated && authStore.companies.length === 0) {
     await authStore.reloadCompanies();
   }
@@ -79,14 +82,6 @@ onMounted(async () => {
             Paramètres
           </p>
           <div class="flex flex-col gap-[5px]">
-            <!-- <router-link
-              to="/settings/general"
-              class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
-              active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
-            >
-              <i class="fa-solid fa-sliders-h text-[18px] w-[22px] text-center"></i>
-              Général
-            </router-link> -->
             <router-link
               to="/settings/documents"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
@@ -204,12 +199,12 @@ onMounted(async () => {
           </p>
           <div class="flex flex-col gap-[5px]">
             <router-link
-              to="/settings"
+              to="/settings/account"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
             >
-              <i class="fa-solid fa-gear text-[18px] w-[22px] text-center"></i>
-              Paramètres
+              <i class="fa-solid fa-building text-[18px] w-[22px] text-center"></i>
+              Compte & Sécurité
             </router-link>
             <router-link
               to="/settings/organizations"

@@ -116,6 +116,66 @@ const router = createRouter({
       name: 'quote',
       component: QuoteIndex,
     },
+
+    // ----- Routes pour les factures proforma -----
+    {
+      path: '/proforma/create',
+      name: 'proforma.create',
+      component: () => import('../views/proformas/CreateProforma.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/proforma/edit/:id',
+      name: 'proforma.edit',
+      component: () => import('../views/proformas/CreateProforma.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/proformas',
+      name: 'proforma.index',
+      component: () => import('../views/proformas/ProformaIndex.vue'),
+      meta: { requiresAuth: true },
+    },
+
+    // ----- Routes pour les factures de solde -----
+    {
+      path: '/balance-invoices/create',
+      name: 'balance-invoice.create',
+      component: () => import('../views/balance-invoices/CreateBalanceInvoice.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/balance-invoices/edit/:id',
+      name: 'balance-invoice.edit',
+      component: () => import('../views/balance-invoices/CreateBalanceInvoice.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/balance-invoices',
+      name: 'balance-invoice.index',
+      component: () => import('../views/balance-invoices/BalanceInvoiceIndex.vue'),
+      meta: { requiresAuth: true },
+    },
+
+    // ----- Routes pour les avoirs -----
+    {
+      path: '/credit-notes/create',
+      name: 'credit-note.create',
+      component: () => import('../views/credit-notes/CreateCreditNote.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/credit-notes/edit/:id',
+      name: 'credit-note.edit',
+      component: () => import('../views/credit-notes/CreateCreditNote.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/credit-notes',
+      name: 'credit-note.index',
+      component: () => import('../views/credit-notes/CreditNoteIndex.vue'),
+      meta: { requiresAuth: true },
+    },
     // --------------------------------
     {
       path: '/accept-invitation',
@@ -235,9 +295,16 @@ const router = createRouter({
       component: Products,
     },
     {
-      path: '/purchase-invoices',
+      path: '/expenses',
       name: 'purchase-invoices',
-      component: () => import('../views/PurchaseInvoices.vue'),
+      component: () => import('../views/purchase-invoices/PurchaseInvoices.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/expenses/:id/preview',
+      name: 'purchase-invoice.preview',
+      component: () => import('../views/purchase-invoices/PurchaseInvoicePreview.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/recurring-invoices',
@@ -257,28 +324,34 @@ const router = createRouter({
       component: () => import('../views/recurring-invoices/CreateRecurringInvoice.vue'),
       meta: { requiresAuth: true },
     },
-    {
-      path: '/expenses',
-      name: 'expenses.index',
-      component: () => import('../views/expenses/ExpenseIndex.vue'),
-      meta: { requiresAuth: true },
-    },
+    // {
+    //   path: '/expenses',
+    //   name: 'expenses.index',
+    //   component: () => import('../views/expenses/ExpenseIndex.vue'),
+    //   meta: { requiresAuth: true },
+    // },
     // {
     //   path: '/expenses/create',
     //   name: 'expenses.create',
     //   component: () => import('../views/expenses/CreateExpense.vue'),
     //   meta: { requiresAuth: true },
     // },
-    {
-      path: '/expenses/preview/:id',
-      name: 'expenses.preview',
-      component: () => import('../views/expenses/PreviewExpense.vue'),
-      meta: { requiresAuth: true },
-    },
+    // {
+    //   path: '/expenses/preview/:id',
+    //   name: 'expenses.preview',
+    //   component: () => import('../views/expenses/PreviewExpense.vue'),
+    //   meta: { requiresAuth: true },
+    // },
     {
       path: '/suppliers',
       name: 'suppliers.index',
       component: () => import('../views/suppliers/SupplierIndex.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/settings/account',
+      name: 'account.security',
+      component: () => import('../views/AccountSecurity.vue'),
       meta: { requiresAuth: true },
     },
   ],

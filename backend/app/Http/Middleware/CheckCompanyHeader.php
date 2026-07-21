@@ -13,6 +13,11 @@ class CheckCompanyHeader
         'api/companies',
     ];
 
+    // Routes that should proceed even when no company is found
+    protected array $allowNoCompany = [
+        'api/user-status',
+    ];
+
     public function handle(Request $request, Closure $next)
     {
         $path = $request->path();
@@ -25,11 +30,19 @@ class CheckCompanyHeader
 
         $companyId = $request->header('X-Company-Id');
         $user = $request->user();
+        $allowNoCompany = in_array($path, $this->allowNoCompany);
 
         if (!$companyId && $user) {
             $companyId = $this->resolveFallbackCompany($user);
 
             if (!$companyId) {
+                if ($allowNoCompany) {
+                    // For routes like user-status, allow proceeding without a company
+                    // Set company_id to null so the controller can handle it
+                    config(['app.current_company_id' => null]);
+                    return $next($request);
+                }
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Veuillez sélectionner une entreprise.',

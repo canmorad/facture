@@ -1,14 +1,10 @@
 <script setup>
-import { onMounted } from 'vue'
 import { useAuthStore } from './stores/auth'
 
 const authStore = useAuthStore()
 
-onMounted(() => {
-  if (!authStore.isAuthenticated && !authStore.user) {
-    authStore.fetchAuthStatus()
-  }
-})
+// Auth status is now initialized in main.js after mounting
+// This component just needs to access the store
 </script>
 
 <template>

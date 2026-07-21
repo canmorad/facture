@@ -14,8 +14,59 @@ class DeliveryNoteService
         protected DocumentCalculationService $calculationService,
         protected NumberingService $numberingService,
         protected DocumentService $documentService,
-        protected DocumentItemService $documentItemService
+        protected DocumentItemService $documentItemService,
+        protected FiscalComplianceService $fiscalService
     ) {}
+
+    public function getPaginated(array $filters = [], int $perPage = 10)
+    {
+        $companyId = $this->getCompanyId();
+        $validStatuses = ['DRAFT', 'FINALIZED', 'SENT', 'DELIVERED'];
+
+        $filters = array_merge([
+            'status' => null,
+            'search' => null,
+            'date_from' => null,
+            'date_to' => null,
+            'customer_id' => null,
+        ], $filters);
+
+        $query = Document::where('company_id', $companyId)
+            ->where('documentable_type', DeliveryNote::class)
+            ->with(['customer.customerable', 'items.product', 'items.product.category', 'documentable', 'parent']);
+
+        if ($filters['status'] && in_array($filters['status'], $validStatuses)) {
+            $query->whereHas('documentable', function ($q) use ($filters) {
+                $q->where('status', $filters['status']);
+            });
+        }
+
+        if ($filters['customer_id']) {
+            $query->where('customer_id', $filters['customer_id']);
+        }
+
+        if ($filters['date_from']) {
+            $query->where('created_at', '>=', $filters['date_from']);
+        }
+
+        if ($filters['date_to']) {
+            $query->where('created_at', '<=', $filters['date_to']);
+        }
+
+        if ($filters['search']) {
+            $search = $filters['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('number', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function ($cq) use ($search) {
+                        $cq->where('name', 'like', "%{$search}%");
+                    })
+                    ->orWhere('total_ht', 'like', "%{$search}%")
+                    ->orWhere('total_ttc', 'like', "%{$search}%");
+            });
+        }
+
+        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+    }
 
     public function getAll(?string $status = null)
     {
@@ -212,19 +263,9 @@ class DeliveryNoteService
             $customerId = $sourceDocument->customer_id;
             $parentDocumentId = $sourceDocument->id;
 
-            // Si le bon de livraison a un parent (Devis ou Bon de commande),
-            // on hérite du client du parent et on lie la facture au bon de livraison
-            if ($sourceDocument->parent) {
-                $parentDocumentId = $sourceDocument->id;
-                // Déterminer le type pour la numérotation
-                if ($invoiceType === 'SOLDE') {
-                    $number = $this->numberingService->generateNumber('balance_invoice', $companyId);
-                } else {
-                    $number = $this->numberingService->generateNumber('invoice', $companyId);
-                }
-            } else {
-                $number = $this->numberingService->generateNumber('invoice', $companyId);
-            }
+            // Pour un brouillon, pas de numéro officiel généré automatiquement
+            // Le numéro sera attribué lors de la finalisation
+            $number = null;
 
             $invoice = Invoice::create([
                 'status' => 'DRAFT',
@@ -284,12 +325,13 @@ class DeliveryNoteService
 
     public function getAvailableActions(int $deliveryNoteId): array
     {
-        $document = Document::with(['documentable', 'children'])
-            ->where('company_id', $this->getCompanyId())
-            ->where('documentable_type', DeliveryNote::class)
-            ->findOrFail($deliveryNoteId);
+        $deliveryNote = DeliveryNote::with('document')->findOrFail($deliveryNoteId);
+        $document = $deliveryNote->document;
 
-        $deliveryNote = $document->documentable;
+        if (!$document || $document->company_id !== $this->getCompanyId()) {
+            throw new \RuntimeException('Bon de livraison non autorisé.');
+        }
+
         $status = $deliveryNote->status;
 
         $hasInvoice = $document->children()
@@ -345,5 +387,168 @@ class DeliveryNoteService
         }
 
         return $company;
+    }
+
+    public function consolidateToInvoice(array $deliveryNoteIds, string $invoiceType = 'STANDARD'): Document
+    {
+        if (count($deliveryNoteIds) < 2) {
+            throw new \InvalidArgumentException('Au moins 2 bons de livraison sont requis pour la consolidation.');
+        }
+
+        $companyId = $this->getCompanyId();
+
+        $documents = Document::where('company_id', $companyId)
+            ->whereIn('id', $deliveryNoteIds)
+            ->where('documentable_type', DeliveryNote::class)
+            ->with(['documentable', 'customer', 'items'])
+            ->get();
+
+        if ($documents->count() !== count($deliveryNoteIds)) {
+            throw new \InvalidArgumentException('Certains bons de livraison sont introuvables ou non autorisés.');
+        }
+
+        $customerId = $documents->first()->customer_id;
+        if ($documents->pluck('customer_id')->unique()->count() > 1) {
+            throw new \InvalidArgumentException('Tous les bons de livraison doivent appartenir au même client.');
+        }
+
+        foreach ($documents as $doc) {
+            $status = $doc->documentable->getAttribute('status');
+            if (!in_array($status, ['DELIVERED', 'FINALIZED'])) {
+                throw new \InvalidArgumentException("Le bon de livraison #{$doc->id} n'est pas livré.");
+            }
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $totalHt = $documents->sum('total_ht');
+            $totalTva = $documents->sum('total_tva');
+            $totalTtc = $documents->sum('total_ttc');
+
+            $invoice = Invoice::create([
+                'status' => 'DRAFT',
+                'due_date' => now()->addDays(30)->toDateString(),
+                'type' => $invoiceType,
+            ]);
+
+            // Pour un brouillon, pas de numéro officiel généré automatiquement
+            // Le numéro sera attribué lors de la finalisation
+            $number = null;
+
+            $consolidatedDocument = $this->documentService->create([
+                'company_id' => $companyId,
+                'customer_id' => $customerId,
+                'bank_account_id' => $documents->first()->bank_account_id,
+                'parent_document_id' => null,
+                'number' => $number,
+                'total_ht' => $totalHt,
+                'total_tva' => $totalTva,
+                'total_ttc' => $totalTtc,
+                'global_discount_type' => null,
+                'global_discount_value' => 0,
+                'global_discount_amount' => 0,
+                'notes' => 'Facture consolidée à partir de ' . count($documents) . ' bons de livraison.',
+                'terms' => $documents->first()->terms,
+                'intro_text' => $documents->first()->intro_text,
+                'footer_text' => $documents->first()->footer_text,
+                'conclusion_text' => $documents->first()->conclusion_text,
+                'documentable_type' => Invoice::class,
+                'documentable_id' => $invoice->id,
+                'payment_condition' => $documents->first()->payment_condition,
+                'payment_mode' => $documents->first()->payment_mode,
+                'late_fee_interest' => $documents->first()->late_fee_interest,
+            ]);
+
+            $itemGroup = [];
+            foreach ($documents as $doc) {
+                foreach ($doc->items as $item) {
+                    $key = md5($item->description . $item->unit_price . $item->tax_rate);
+                    if (!isset($itemGroup[$key])) {
+                        $itemGroup[$key] = [
+                            'product_id' => $item->product_id,
+                            'description' => $item->description,
+                            'product_type' => $item->product_type,
+                            'unit_price' => $item->unit_price,
+                            'tax_rate' => $item->tax_rate,
+                            'discount_type' => $item->discount_type,
+                            'discount_value' => $item->discount_value,
+                            'quantity' => 0,
+                            'total_ht' => 0,
+                            'total_ttc' => 0,
+                        ];
+                    }
+                    $itemGroup[$key]['quantity'] += $item->quantity;
+                    $itemGroup[$key]['total_ht'] += $item->total_ht;
+                    $itemGroup[$key]['total_ttc'] += $item->total_ttc;
+                }
+            }
+
+            foreach ($itemGroup as $item) {
+                $consolidatedDocument->items()->create([
+                    'product_id' => $item['product_id'],
+                    'description' => $item['description'],
+                    'product_type' => $item['product_type'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'tax_rate' => $item['tax_rate'],
+                    'total_ht' => $item['total_ht'],
+                    'total_ttc' => $item['total_ttc'],
+                    'discount_type' => $item['discount_type'],
+                    'discount_value' => $item['discount_value'],
+                ]);
+            }
+
+            foreach ($documents as $doc) {
+                $consolidatedDocument->children()->create([
+                    'company_id' => $companyId,
+                    'customer_id' => $doc->customer_id,
+                    'parent_document_id' => $doc->id,
+                    'number' => null,
+                    'total_ht' => $doc->total_ht,
+                    'total_tva' => $doc->total_tva,
+                    'total_ttc' => $doc->total_ttc,
+                    'documentable_type' => Invoice::class,
+                    'documentable_id' => $invoice->id,
+                ]);
+            }
+
+            $invoice->transitionTo('FINALIZED');
+            $this->fiscalService->lockDocument($consolidatedDocument, 'finalized_document_immutable');
+
+            DB::commit();
+
+            return $consolidatedDocument->load('customer', 'items', 'documentable', 'parent');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    public function getConsolidatableDeliveryNotes(int $customerId): array
+    {
+        $companyId = $this->getCompanyId();
+
+        return Document::where('company_id', $companyId)
+            ->where('customer_id', $customerId)
+            ->where('documentable_type', DeliveryNote::class)
+            ->whereHas('documentable', function ($q) {
+                $q->whereIn('status', ['DELIVERED', 'FINALIZED']);
+            })
+            ->whereDoesntHave('children', function ($q) {
+                $q->where('documentable_type', \App\Models\Invoice::class);
+            })
+            ->with(['documentable', 'items'])
+            ->get()
+            ->map(function ($doc) {
+                return [
+                    'id' => $doc->id,
+                    'number' => $doc->number,
+                    'total_ttc' => $doc->total_ttc,
+                    'status' => $doc->documentable->status,
+                    'delivery_date' => $doc->documentable->delivery_date,
+                ];
+            })
+            ->toArray();
     }
 }

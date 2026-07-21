@@ -53,6 +53,19 @@
                 <i class="fas fa-user-plus"></i>
                 Inviter un utilisateur
               </button>
+
+              <button
+                @click="changeTab('quick-add')"
+                :class="[
+                  'pb-3 text-sm font-bold transition-colors flex items-center gap-2',
+                  activeTab === 'quick-add'
+                    ? 'text-[#062121] border-b-2 border-[#C5F82A]'
+                    : 'text-gray-500 hover:text-gray-700',
+                ]"
+              >
+                <i class="fas fa-bolt"></i>
+                Ajout rapide
+              </button>
             </div>
           </div>
 
@@ -249,6 +262,7 @@
                   label-key="label"
                   value-key="id"
                   placeholder="Sélectionner un rôle"
+                  :use-portal="true"
                 />
                 <InputError class="mt-2" :message="errors.role_id" />
               </div>
@@ -273,6 +287,113 @@
                 </PrimaryButton>
               </div>
             </form>
+          </div>
+
+          <div v-else-if="activeTab === 'quick-add'" class="p-6 lg:p-8">
+            <div class="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div class="flex items-start gap-3">
+                <i class="fas fa-info-circle text-blue-500 mt-0.5"></i>
+                <div class="text-sm text-blue-700">
+                  <p class="font-semibold mb-1">Ajout rapide d'utilisateurs existants</p>
+                  <p>Ajoutez instantanément des membres de vos autres entreprises sans passer par le processus d'invitation par email.</p>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="isLoadingAvailable" class="text-center py-12">
+              <svg class="animate-spin h-8 w-8 mx-auto text-[#C5F82A]" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <p class="mt-2 text-gray-500">Chargement des utilisateurs disponibles...</p>
+            </div>
+
+            <div v-else-if="availableUsers.length === 0" class="text-center py-12">
+              <i class="fas fa-users-slash text-5xl text-gray-300 mb-4 block"></i>
+              <p class="text-gray-500">Aucun utilisateur disponible à ajouter.</p>
+              <p class="text-sm text-gray-400 mt-2">Vous pouvez uniquement ajouter des utilisateurs de vos autres entreprises où vous êtes propriétaire.</p>
+            </div>
+
+            <div v-else class="overflow-visible">
+              <table class="min-w-full">
+                <thead>
+                  <tr class="border-b border-gray-200">
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-[#062121] uppercase tracking-wider">Utilisateur</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-[#062121] uppercase tracking-wider">Rôle à assigner</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-[#062121] uppercase tracking-wider">Statut</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold text-[#062121] uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  <tr
+                    v-for="user in availableUsers"
+                    :key="user.id"
+                    class="group hover:bg-white/50 transition-colors duration-200"
+                  >
+                    <td class="px-4 py-4">
+                      <div class="flex items-center gap-3">
+                        <div class="h-10 w-10 rounded-full bg-gradient-to-br from-[#062121] to-[#0F172A] flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-sm">
+                          {{ user.name.charAt(0).toUpperCase() }}
+                        </div>
+                        <div>
+                          <div class="text-sm font-semibold text-gray-900">{{ user.name }}</div>
+                          <div class="text-xs text-gray-400">{{ user.email }}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-4">
+                      <CustomSelect
+                        :id="`role-${user.id}`"
+                        :model-value="getUserRoleId(user.id)"
+                        :options="roleOptions"
+                        label-key="label"
+                        value-key="id"
+                        placeholder="Sélectionner un rôle"
+                        :use-portal="true"
+                        @update:model-value="(val) => updateQuickAddRole(user.id, val)"
+                      />
+                    </td>
+                    <td class="px-4 py-4">
+                      <span
+                        :class="[
+                          'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                          !user.email_verified_at ? 'bg-yellow-100 text-yellow-800' :
+                          user.is_active ? 'bg-green-100 text-green-800' :
+                          'bg-gray-200 text-gray-600'
+                        ]"
+                      >
+                        {{ !user.email_verified_at ? 'Invitation en attente' :
+                           user.is_active ? 'Actif' : 'Inactif' }}
+                      </span>
+                    </td>
+                    <td class="px-4 py-4 text-right">
+                      <button
+                        @click="quickAddUser(user)"
+                        :disabled="!getUserRoleId(user.id) || isQuickAdding[user.id]"
+                        :class="[
+                          'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+                          getUserRoleId(user.id) && !isQuickAdding[user.id]
+                            ? 'bg-[#062121] text-white hover:bg-gray-800'
+                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        ]"
+                      >
+                        <span v-if="isQuickAdding[user.id]">
+                          <svg class="animate-spin h-4 w-4 text-white inline" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          Ajout en cours...
+                        </span>
+                        <span v-else class="flex items-center gap-2">
+                          <i class="fas fa-plus"></i>
+                          Ajouter
+                        </span>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -300,11 +421,16 @@ const isSubmitting = ref(false)
 const users = ref([])
 const pendingInvitations = ref([])
 const availableRoles = ref([])
+const availableUsers = ref([])
+const isLoadingAvailable = ref(false)
+const isQuickAdding = ref({})
 
 const inviteForm = reactive({
   email: '',
   role_id: '',
 })
+
+const quickAddForm = reactive({})
 
 const errors = reactive({
   email: '',
@@ -349,6 +475,8 @@ const changeTab = (tab) => {
     errors.email = ''
     errors.role_id = ''
     errors.server = ''
+  } else if (tab === 'quick-add') {
+    fetchAvailableUsers()
   }
 }
 
@@ -438,6 +566,70 @@ const deleteUser = async (user) => {
     } else {
       error('Erreur', "Impossible de retirer l'utilisateur.")
     }
+  }
+}
+
+const fetchAvailableUsers = async () => {
+  isLoadingAvailable.value = true
+  try {
+    const { data } = await axios.get('/api/company/users/available')
+    availableUsers.value = data.users || []
+  } catch (err) {
+    if (err.response?.data?.message) {
+      error('Erreur', err.response.data.message)
+    } else {
+      error('Erreur', 'Impossible de charger les utilisateurs disponibles.')
+    }
+    availableUsers.value = []
+  } finally {
+    isLoadingAvailable.value = false
+  }
+}
+
+const updateQuickAddRole = (userId, roleId) => {
+  if (!quickAddForm[userId]) {
+    quickAddForm[userId] = {}
+  }
+  quickAddForm[userId].role_id = roleId
+}
+
+const getUserRoleId = (userId) => {
+  return quickAddForm[userId]?.role_id || ''
+}
+
+const quickAddUser = async (user) => {
+  const roleId = quickAddForm[user.id]?.role_id
+  if (!roleId) {
+    validation('Veuillez sélectionner un rôle.')
+    return
+  }
+
+  isQuickAdding.value = { ...isQuickAdding.value, [user.id]: true }
+
+  try {
+    const { data } = await axios.post('/api/company/users/quick-add', {
+      user_id: user.id,
+      role_id: roleId,
+    })
+
+    if (data.success) {
+      users.value.push(data.user)
+      availableUsers.value = availableUsers.value.filter(u => u.id !== user.id)
+      delete quickAddForm[user.id]
+      success('Utilisateur ajouté', `${data.user.name} a été ajouté à l'organisation.`)
+
+      if (availableUsers.value.length === 0) {
+        changeTab('list')
+      }
+    }
+  } catch (err) {
+    if (err.response?.data?.message) {
+      error('Erreur', err.response.data.message)
+    } else {
+      error('Erreur', "Impossible d'ajouter l'utilisateur.")
+    }
+  } finally {
+    isQuickAdding.value = { ...isQuickAdding.value, [user.id]: false }
   }
 }
 

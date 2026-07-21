@@ -9,7 +9,8 @@ import InputLabel from "@/components/InputLabel.vue";
 import TextInput from "@/components/TextInput.vue";
 import TextareaInput from "@/components/TextareaInput.vue";
 import CustomSelect from "@/components/CustomSelect.vue";
-import DropdownSelect from "@/components/DropdownSelect.vue";
+import DocumentLineItem from "@/components/DocumentLineItem.vue";
+import DocumentTotals from "@/components/DocumentTotals.vue";
 
 const router = useRouter();
 const route = useRoute();
@@ -30,6 +31,7 @@ const lookupData = ref({
 });
 
 const defaultTaxRateValue = ref(20);
+const defaultProductTypeId = ref("");
 
 const form = reactive({
   customer_id: null,
@@ -76,18 +78,6 @@ const frequencies = [
   { value: "yearly", label: "Annuel" },
 ];
 
-const productOptions = computed(() =>
-  lookupData.value.products.map((p) => ({ label: p.name, value: p.id, price: p.price, categoryId: p.product_category_id }))
-);
-
-const taxOptions = computed(() =>
-  lookupData.value.tax_rates.map((t) => ({
-    label: t.libelle ? `${t.libelle} (${t.rate}%)` : `${t.rate}%`,
-    value: t.id,
-    rate: t.rate,
-  }))
-);
-
 const fetchLookups = async () => {
   isLoading.value = true;
   try {
@@ -113,6 +103,9 @@ const fetchLookups = async () => {
     const defaultTaxRate = data.tax_rates.find((tr) => tr.is_default === true);
     if (defaultTaxRate) defaultTaxRateValue.value = defaultTaxRate.rate;
 
+    const defaultProductType = data.product_types.find((pt) => pt.is_default === true);
+    if (defaultProductType) defaultProductTypeId.value = String(defaultProductType.id);
+
     if (form.items.length === 0) {
       form.items.push(createItem());
     }
@@ -137,6 +130,7 @@ const fetchRecurring = async () => {
     form.late_fee_interest = doc?.late_fee_interest || "";
     form.items = (doc?.items || []).map((i) => ({
       product_id: i.product_id,
+      product_type: i.product_type,
       designation: i.description,
       quantity: parseFloat(i.quantity) || 1,
       unit_price: parseFloat(i.unit_price) || 0,
@@ -166,6 +160,7 @@ const fetchRecurring = async () => {
 
 const createItem = () => ({
   product_id: null,
+  product_type: defaultProductTypeId.value,
   designation: "",
   quantity: 1,
   unit_price: 0,
@@ -175,23 +170,37 @@ const createItem = () => ({
 });
 
 const addLine = () => form.items.push(createItem());
+
 const removeLine = (index) => {
   if (form.items.length > 1) form.items.splice(index, 1);
 };
 
-const selectProduct = (index, productId) => {
-  const product = lookupData.value.products.find((p) => p.id === productId);
-  if (!product) return;
-  const item = form.items[index];
-  item.product_id = product.id;
-  item.designation = product.name;
-  item.unit_price = product.price;
+const handleSelectProduct = ({ index, product }) => {
+  const currentItem = form.items[index];
+
+  let productTypeId = "";
+  if (product.category_id) {
+    const categoryExists = lookupData.value.product_types.some(
+      (pt) => String(pt.id) === String(product.category_id)
+    );
+    if (categoryExists) {
+      productTypeId = String(product.category_id);
+    }
+  }
+
+  const updatedItem = {
+    ...currentItem,
+    product_id: product.id,
+    designation: product.name,
+    unit_price: product.price,
+    product_type: productTypeId,
+  };
+  form.items[index] = updatedItem;
 };
 
-const selectTaxRate = (index, taxId) => {
-  const tax = lookupData.value.tax_rates.find((t) => t.id === taxId);
-  if (!tax) return;
-  form.items[index].tax_rate = tax.rate;
+const handleSelectTaxRate = ({ index, taxRate }) => {
+  const item = form.items[index];
+  item.tax_rate = taxRate.rate;
 };
 
 const lineTotalHt = (item) => {
@@ -223,14 +232,6 @@ const totals = computed(() => {
 const fmt = (n) => {
   if (isNaN(n) || !isFinite(n)) return "0.00";
   return new Intl.NumberFormat("fr-MA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-};
-
-const getTaxOptionByRate = (rate) => {
-  return taxOptions.value.find((t) => t.rate === rate)?.value || null;
-};
-
-const getProductOptionById = (id) => {
-  return productOptions.value.find((p) => p.value === id)?.value || null;
 };
 
 const submit = async () => {
@@ -320,7 +321,8 @@ onMounted(async () => {
                 <table class="min-w-full" style="overflow: visible !important;">
                   <thead class="bg-gray-50">
                     <tr>
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[25%]">Produit</th>
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Produit</th>
+                      <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Type</th>
                       <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[10%]">Qté</th>
                       <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[13%]">P.U. HT</th>
                       <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[15%]">TVA</th>
@@ -330,71 +332,32 @@ onMounted(async () => {
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-100">
-                    <tr v-for="(item, index) in form.items" :key="index" :class="index % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'">
-                      <td class="px-4 py-3 relative">
-                        <div class="relative">
-                          <DropdownSelect
-                            :model-value="item.designation"
-                            :options="productOptions"
-                            label-key="label"
-                            value-key="label"
-                            placeholder="— Saisie libre —"
-                            @update:model-value="(val) => { const prod = lookupData.products.find(p => p.name === val); if (prod) selectProduct(index, prod.id); }"
-                          />
-                        </div>
-                      </td>
-                      <td class="px-4 py-3">
-                        <input type="number" v-model.number="item.quantity" min="0.01" step="0.01" class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none" />
-                      </td>
-                      <td class="px-4 py-3">
-                        <input type="number" v-model.number="item.unit_price" min="0" step="0.01" class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none" />
-                      </td>
-                      <td class="px-4 py-3">
-                        <DropdownSelect
-                          :model-value="getTaxOptionByRate(item.tax_rate)"
-                          :options="taxOptions"
-                          label-key="label"
-                          value-key="value"
-                          placeholder="TVA"
-                          @update:model-value="(val) => selectTaxRate(index, val)"
-                        />
-                      </td>
-                      <td class="px-4 py-3">
-                        <div class="flex items-center gap-1">
-                          <input type="number" v-model.number="item.discount_value" min="0" step="0.01" class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none" placeholder="0.00" />
-                          <CustomSelect v-model="item.discount_type" :options="[{ label: '%', value: 'percentage' }, { label: 'DH', value: 'fixed' }]" label-key="label" value-key="value" placeholder="Type" class="w-16" />
-                        </div>
-                      </td>
-                      <td class="px-4 py-3 text-center">
-                        <div class="text-sm font-semibold text-[#062121] whitespace-nowrap">{{ fmt(lineTotalHt(item)) }} DH</div>
-                      </td>
-                      <td class="px-4 py-3 text-center">
-                        <button type="button" @click="removeLine(index)" :disabled="form.items.length <= 1" :class="form.items.length <= 1 ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'">
-                          <i class="fas fa-trash text-sm"></i>
-                        </button>
-                      </td>
-                    </tr>
+                    <DocumentLineItem
+                      v-for="(item, index) in form.items"
+                      :key="index"
+                      :item="item"
+                      :index="index"
+                      :products="lookupData.products"
+                      :product-types="lookupData.product_types"
+                      :tax-rates="lookupData.tax_rates"
+                      @update:item="(newItem) => form.items[index] = newItem"
+                      @select-product="handleSelectProduct"
+                      @select-tax-rate="handleSelectTaxRate"
+                      @update:product-type="(value) => form.items[index].product_type = value"
+                      @remove-line="removeLine"
+                    />
                   </tbody>
                 </table>
               </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <InputLabel for="global_discount_type" value="Réduction globale" />
-                <div class="flex gap-2">
-                  <CustomSelect v-model="form.global_discount_type" :options="[{ label: '%', value: 'percentage' }, { label: 'DH', value: 'fixed' }]" label-key="label" value-key="value" placeholder="Type" />
-                  <input type="number" v-model.number="form.global_discount_value" min="0" step="0.01" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-[#C5F82A] focus:border-[#C5F82A] outline-none" placeholder="0.00" />
-                </div>
-              </div>
-              <div>
-                <div class="rounded-xl border border-gray-200 overflow-hidden">
-                  <div class="px-5 py-3 flex justify-between border-b border-gray-100"><span class="text-sm text-gray-500">Total HT</span><span class="text-sm font-semibold text-gray-800 font-mono">{{ fmt(totals.htAfterDiscount) }} DH</span></div>
-                  <div class="px-5 py-3 flex justify-between border-b border-gray-100 bg-gray-50/50"><span class="text-sm text-gray-500">TVA</span><span class="text-sm font-semibold text-gray-800 font-mono">{{ fmt(totals.tvaAfterDiscount) }} DH</span></div>
-                  <div class="px-5 py-4 flex justify-between bg-gray-50"><span class="text-sm font-bold text-[#062121] uppercase tracking-wide">Total TTC</span><span class="text-lg font-black text-[#062121] font-mono">{{ fmt(totals.ttc) }} DH</span></div>
-                </div>
-              </div>
-            </div>
+            <DocumentTotals
+              :totals="totals"
+              :global-discount-type="form.global_discount_type"
+              :global-discount-value="form.global_discount_value"
+              @update:global-discount-type="form.global_discount_type = $event"
+              @update:global-discount-value="form.global_discount_value = $event"
+            />
 
             <div class="space-y-6">
               <h3 class="text-sm font-bold text-[#062121] uppercase tracking-wider border-b border-gray-200 pb-2">Règlement</h3>

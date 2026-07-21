@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\ImmutableDocumentException;
 use App\Models\Document;
 use App\Models\Quote;
+use App\Models\Proforma;
 use App\Models\Invoice;
 use App\Models\PurchaseOrder;
 use App\Models\DeliveryNote;
@@ -18,8 +19,59 @@ class QuoteService
         protected DocumentCalculationService $calculationService,
         protected NumberingService $numberingService,
         protected DocumentService $documentService,
-        protected DocumentItemService $documentItemService
+        protected DocumentItemService $documentItemService,
+        protected FiscalComplianceService $fiscalService
     ) {}
+
+    public function getPaginated(array $filters = [], int $perPage = 10)
+    {
+        $companyId = $this->getCompanyId();
+        $validStatuses = ['DRAFT', 'FINALIZED', 'SENT', 'SIGNED', 'EXPIRED'];
+
+        $filters = array_merge([
+            'status' => null,
+            'search' => null,
+            'date_from' => null,
+            'date_to' => null,
+            'customer_id' => null,
+        ], $filters);
+
+        $query = Document::where('company_id', $companyId)
+            ->where('documentable_type', Quote::class)
+            ->with(['customer.customerable', 'items.product', 'items.product.category', 'documentable', 'parent']);
+
+        if ($filters['status'] && in_array($filters['status'], $validStatuses)) {
+            $query->whereHas('documentable', function ($q) use ($filters) {
+                $q->where('status', $filters['status']);
+            });
+        }
+
+        if ($filters['customer_id']) {
+            $query->where('customer_id', $filters['customer_id']);
+        }
+
+        if ($filters['date_from']) {
+            $query->where('created_at', '>=', $filters['date_from']);
+        }
+
+        if ($filters['date_to']) {
+            $query->where('created_at', '<=', $filters['date_to']);
+        }
+
+        if ($filters['search']) {
+            $search = $filters['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('number', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function ($cq) use ($search) {
+                        $cq->where('name', 'like', "%{$search}%");
+                    })
+                    ->orWhere('total_ht', 'like', "%{$search}%")
+                    ->orWhere('total_ttc', 'like', "%{$search}%");
+            });
+        }
+
+        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+    }
 
     public function getAll(?string $status = null)
     {
@@ -160,6 +212,8 @@ class QuoteService
             $quote = $document->documentable;
             $quote->transitionTo('FINALIZED');
 
+            $this->fiscalService->lockDocument($document, 'finalized_document_immutable');
+
             DB::commit();
 
             return $document->fresh(['customer', 'items', 'documentable', 'parent']);
@@ -192,7 +246,7 @@ class QuoteService
         }
     }
 
-    public function sign(int $id): Document
+    public function sign(int $id, ?string $signedAt = null): Document
     {
         $document = $this->documentService->findOrFail($id);
 
@@ -205,6 +259,11 @@ class QuoteService
         try {
             $quote = $document->documentable;
             $quote->transitionTo('SIGNED');
+
+            if ($signedAt) {
+                $quote->signed_at = \Carbon\Carbon::parse($signedAt);
+                $quote->save();
+            }
 
             DB::commit();
 
@@ -241,8 +300,6 @@ class QuoteService
 
         $companyId = $this->getCompanyId();
 
-        $number = $this->numberingService->generateNumber('invoice', $companyId);
-
         DB::beginTransaction();
 
         try {
@@ -252,12 +309,14 @@ class QuoteService
                 'type' => 'STANDARD',
             ]);
 
+            // RÈGLE COMPTABLE STRICTE : Pas de numéro pour les brouillons
+            // Le numéro sera généré UNIQUEMENT lorsque l'utilisateur cliquera sur "Finaliser"
             $newDocument = $this->documentService->create([
                 'company_id' => $companyId,
                 'customer_id' => $sourceDocument->customer_id,
                 'bank_account_id' => $sourceDocument->bank_account_id,
                 'parent_document_id' => $sourceDocument->id,
-                'number' => $number,
+                'number' => null,  // NULL pour les brouillons - jamais de numéro officiel
                 'total_ht' => $sourceDocument->total_ht,
                 'total_tva' => $sourceDocument->total_tva,
                 'total_ttc' => $sourceDocument->total_ttc,
@@ -291,10 +350,8 @@ class QuoteService
                 ]);
             }
 
-            $newDocument->finalized_at = now();
-            $newDocument->save();
-
-            $invoice->transitionTo('FINALIZED');
+            // NOTE : Le document reste en statut DRAFT
+            // L'utilisateur devra cliquer sur "Finaliser" pour obtenir un numéro officiel
 
             DB::commit();
 
@@ -338,8 +395,6 @@ class QuoteService
 
         $companyId = $this->getCompanyId();
 
-        $number = $this->numberingService->generateNumber('invoice', $companyId);
-
         DB::beginTransaction();
 
         try {
@@ -349,12 +404,14 @@ class QuoteService
                 'type' => 'SOLDE',
             ]);
 
+            // Pour un brouillon, pas de numéro officiel généré automatiquement
+            // Le numéro sera attribué lors de la finalisation
             $newDocument = $this->documentService->create([
                 'company_id' => $companyId,
                 'customer_id' => $sourceDocument->customer_id,
                 'bank_account_id' => $sourceDocument->bank_account_id,
                 'parent_document_id' => $sourceDocument->id,
-                'number' => $number,
+                'number' => null,
                 'total_ht' => $remainingBalance,
                 'total_tva' => 0,
                 'total_ttc' => $remainingBalance,
@@ -414,8 +471,6 @@ class QuoteService
 
         $companyId = $this->getCompanyId();
 
-        $number = $this->numberingService->generateNumber('purchase_order', $companyId);
-
         DB::beginTransaction();
 
         try {
@@ -424,12 +479,14 @@ class QuoteService
                 'expected_date' => null,
             ]);
 
+            // RÈGLE COMPTABLE STRICTE : Pas de numéro pour les brouillons
+            // Le numéro sera généré UNIQUEMENT lorsque l'utilisateur cliquera sur "Finaliser"
             $newDocument = $this->documentService->create([
                 'company_id' => $companyId,
                 'customer_id' => $sourceDocument->customer_id,
                 'bank_account_id' => $sourceDocument->bank_account_id,
                 'parent_document_id' => $sourceDocument->id,
-                'number' => $number,
+                'number' => null,  // NULL pour les brouillons - jamais de numéro officiel
                 'total_ht' => $sourceDocument->total_ht,
                 'total_tva' => $sourceDocument->total_tva,
                 'total_ttc' => $sourceDocument->total_ttc,
@@ -463,7 +520,81 @@ class QuoteService
                 ]);
             }
 
-            $po->transitionTo('FINALIZED');
+            // NOTE : Le document reste en statut DRAFT
+            // L'utilisateur devra cliquer sur "Finaliser" pour obtenir un numéro officiel
+
+            DB::commit();
+
+            return $newDocument->load('customer', 'items', 'documentable', 'parent');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    public function convertToProforma(int $quoteId): Document
+    {
+        $sourceDocument = Document::with('documentable', 'items', 'customer')
+            ->where('documentable_type', Quote::class)
+            ->whereHas('documentable', function ($q) {
+                $q->whereIn('status', ['FINALIZED', 'SENT', 'SIGNED']);
+            })
+            ->findOrFail($quoteId);
+
+        $existingProforma = Document::where('parent_document_id', $sourceDocument->id)
+            ->where('documentable_type', Proforma::class)
+            ->exists();
+
+        if ($existingProforma) {
+            throw new \RuntimeException('Ce devis a déjà une facture proforma.');
+        }
+
+        $companyId = $this->getCompanyId();
+
+        DB::beginTransaction();
+
+        try {
+            $proforma = Proforma::create([
+                'status' => 'DRAFT',
+                'validity_date' => now()->addDays(30),
+            ]);
+
+            $newDocument = $this->documentService->create([
+                'company_id' => $companyId,
+                'customer_id' => $sourceDocument->customer_id,
+                'bank_account_id' => $sourceDocument->bank_account_id,
+                'parent_document_id' => $sourceDocument->id,
+                'number' => null,
+                'total_ht' => $sourceDocument->total_ht,
+                'total_tva' => $sourceDocument->total_tva,
+                'total_ttc' => $sourceDocument->total_ttc,
+                'global_discount_type' => $sourceDocument->global_discount_type,
+                'global_discount_value' => $sourceDocument->global_discount_value,
+                'global_discount_amount' => $sourceDocument->global_discount_amount,
+                'notes' => $sourceDocument->notes,
+                'terms' => $sourceDocument->terms,
+                'intro_text' => $sourceDocument->intro_text,
+                'footer_text' => $sourceDocument->footer_text,
+                'conclusion_text' => $sourceDocument->conclusion_text,
+                'documentable_type' => Proforma::class,
+                'documentable_id' => $proforma->id,
+                'payment_condition' => $sourceDocument->payment_condition,
+                'payment_mode' => $sourceDocument->payment_mode,
+                'late_fee_interest' => $sourceDocument->late_fee_interest,
+            ]);
+
+            foreach ($sourceDocument->items as $item) {
+                $this->documentItemService->create($newDocument->id, [
+                    'product_id' => $item->product_id,
+                    'product_type' => $item->product_type,
+                    'designation' => $item->description,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $item->unit_price,
+                    'tax_rate' => $item->tax_rate,
+                    'discount_type' => $item->discount_type,
+                    'discount_value' => $item->discount_value,
+                ]);
+            }
 
             DB::commit();
 
@@ -552,11 +683,13 @@ class QuoteService
     
     public function getAvailableActions(int $quoteId): array
     {
-        $document = Document::with(['documentable', 'children.documentable'])
-            ->where('documentable_type', Quote::class)
-            ->findOrFail($quoteId);
+        $quote = Quote::with('document')->findOrFail($quoteId);
+        $document = $quote->document;
 
-        $quote = $document->documentable;
+        if (!$document || $document->company_id !== $this->getCompanyId()) {
+            throw new \RuntimeException('Quote non autorisé.');
+        }
+
         $status = $quote->status;
 
         $actions = [
@@ -633,6 +766,10 @@ class QuoteService
 
         try {
             $document->update([
+                'customer_id' => $data['customer_id'] ?? $document->customer_id,
+                'bank_account_id' => $data['bank_account_id'] ?? $document->bank_account_id,
+                'date' => $data['date'] ?? $document->date,
+                'valid_until' => $data['valid_until'] ?? $document->valid_until,
                 'notes' => $data['notes'] ?? $document->notes,
                 'terms' => $data['terms'] ?? $document->terms,
                 'intro_text' => $data['intro_text'] ?? $document->intro_text,
@@ -641,11 +778,63 @@ class QuoteService
                 'payment_condition' => $data['payment_condition'] ?? $document->payment_condition,
                 'payment_mode' => $data['payment_mode'] ?? $document->payment_mode,
                 'late_fee_interest' => $data['late_fee_interest'] ?? $document->late_fee_interest,
+                'global_discount_type' => $data['global_discount_type'] ?? $document->global_discount_type,
+                'global_discount_value' => $data['global_discount_value'] ?? $document->global_discount_value,
             ]);
 
             DB::commit();
 
             return $document->fresh(['customer', 'items', 'documentable', 'parent']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    public function updateItems(int $id, array $items): Document
+    {
+        $document = $this->documentService->findOrFail($id);
+
+        if ($document->documentable_type !== Quote::class) {
+            throw new \InvalidArgumentException('Le document n\'est pas un devis.');
+        }
+
+        $document->guardImmutable();
+
+        $calculated = $this->calculationService->calculate(
+            $items,
+            $document->global_discount_type,
+            $document->global_discount_value
+        );
+
+        DB::beginTransaction();
+
+        try {
+            $document->items()->delete();
+
+            $itemsWithTotals = [];
+            foreach ($items as $idx => $item) {
+                $processed = $calculated['processed_items'][$idx];
+                $lineHt = $processed['line_ht'];
+                $lineTtc = $lineHt * (1 + $item['tax_rate'] / 100);
+                $itemsWithTotals[] = array_merge($item, [
+                    'calculated_ht' => $lineHt,
+                    'calculated_ttc' => $lineTtc,
+                ]);
+            }
+
+            $this->documentItemService->createMany($document->id, $itemsWithTotals);
+
+            $document->update([
+                'total_ht' => $calculated['total_ht'],
+                'total_tva' => $calculated['total_tva'],
+                'total_ttc' => $calculated['total_ttc'],
+                'global_discount_amount' => $calculated['global_discount_amount'],
+            ]);
+
+            DB::commit();
+
+            return $document->fresh(['customer.customerable', 'items', 'documentable', 'parent']);
         } catch (\Throwable $e) {
             DB::rollBack();
             throw $e;

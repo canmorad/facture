@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Facture Test Légère</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            background: #fff;
+            padding: 40px;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .header { display: flex; justify-content: space-between; margin-bottom: 30px; }
+        .company h2 { color: #333; }
+        .company p { font-size: 12px; color: #666; margin: 3px 0; }
+        .invoice { text-align: right; }
+        .invoice h1 { color: #007bff; }
+        .invoice-number { font-weight: bold; font-size: 16px; }
+        .addresses { display: flex; justify-content: space-between; margin: 20px 0; gap: 20px; }
+        .address { flex: 1; padding: 15px; border-radius: 5px; }
+        .from { background: #f0f0f0; }
+        .to { background: #fff9e6; }
+        .address h3 { font-size: 12px; color: #666; margin-bottom: 8px; }
+        .address p { font-size: 12px; margin: 3px 0; }
+        table { width: 100%; margin: 20px 0; border-collapse: collapse; }
+        thead { background: #007bff; color: white; }
+        th, td { padding: 10px; text-align: left; font-size: 12px; border: 1px solid #ddd; }
+        th { font-weight: bold; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .totals { float: right; width: 250px; margin: 20px 0; }
+        .total-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ddd; }
+        .grand-total { background: #007bff; color: white; font-weight: bold; padding: 10px !important; }
+        .footer { clear: both; margin-top: 60px; padding-top: 15px; border-top: 2px solid #ddd; font-size: 11px; color: #666; }
+        .btn { padding: 15px 30px; background: #007bff; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; margin: 10px 5px; }
+        .btn-container { text-align: center; margin: 20px 0; padding: 20px; background: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <div class="btn-container">
+        <h2>📄 Facture de Test Ultra-Légère</h2>
+        <p><strong>Version optimisée pour Gemini API (~30-50 KB)</strong></p>
+        <button class="btn" onclick="downloadPDF()">Télécharger PDF</button>
+        <button class="btn" onclick="window.print()">Imprimer</button>
+    </div>
+
+    <div class="invoice" id="invoice">
+        <div class="header">
+            <div class="company">
+                <h2>TechZone Maroc</h2>
+                <p>Bd Zerktouni, Casablanca</p>
+                <p>ICE: 001548796000085</p>
+                <p>IF: 40251896</p>
+            </div>
+            <div class="invoice">
+                <h1>FACTURE</h1>
+                <p class="invoice-number">N° FA-2026-0894</p>
+                <p>Date: 15/07/2026</p>
+            </div>
+        </div>
+
+        <div class="addresses">
+            <div class="address from">
+                <h3>DE:</h3>
+                <p><strong>TechZone Maroc S.A.R.L</strong></p>
+                <p>Bd Zerktouni, Casablanca</p>
+                <p>ICE: 001548796000085</p>
+            </div>
+            <div class="address to">
+                <h3>À:</h3>
+                <p><strong>My Business Solution</strong></p>
+                <p>Technopark, Casablanca</p>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Désignation</th>
+                    <th class="text-center">Qté</th>
+                    <th class="text-right">P.U (DH)</th>
+                    <th class="text-right">Total HT</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Ordinateur Portable Lenovo</td>
+                    <td class="text-center">2</td>
+                    <td class="text-right">8,500.00</td>
+                    <td class="text-right">17,000.00</td>
+                </tr>
+                <tr>
+                    <td>Écran Dell 27"</td>
+                    <td class="text-center">3</td>
+                    <td class="text-right">2,100.00</td>
+                    <td class="text-right">6,300.00</td>
+                </tr>
+                <tr>
+                    <td>Souris Sans Fil Logitech</td>
+                    <td class="text-center">5</td>
+                    <td class="text-right">150.00</td>
+                    <td class="text-right">750.00</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="totals">
+            <div class="total-row">
+                <span>Total HT:</span>
+                <span>24,050.00 DH</span>
+            </div>
+            <div class="total-row">
+                <span>TVA (20%):</span>
+                <span>4,810.00 DH</span>
+            </div>
+            <div class="total-row grand-total">
+                <span>Total TTC:</span>
+                <span>28,860.00 DH</span>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>Conditions de paiement:</strong> 30 jours</p>
+            <p><strong>RIB:</strong> 019 780 00001234567890 12</p>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script>
+        async function downloadPDF() {
+            const { jsPDF } = window.jspdf;
+            const element = document.getElementById('invoice');
+            document.querySelector('.btn-container').style.display = 'none';
+
+            try {
+                const canvas = await html2canvas(element, {
+                    scale: 1.2,
+                    useCORS: true,
+                    logging: false
+                });
+
+                const imgData = canvas.toDataURL('image/jpeg', 0.7);
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const ratio = Math.min(pdfWidth / canvas.width, 1);
+                pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width * ratio, canvas.height * ratio);
+                pdf.save('Facture_Test_Legere.pdf');
+            } finally {
+                document.querySelector('.btn-container').style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

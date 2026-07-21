@@ -15,13 +15,34 @@ const selectedStatus = ref("all");
 const openDropdownId = ref(null);
 const dropdownPosition = ref({ top: 0, left: 0 });
 
+const isImmutable = (dn) => {
+  const status = dn.documentable?.status;
+  return dn.is_locked ||
+         dn.parent_document_id ||
+         ['FINALIZED', 'SENT', 'DELIVERED'].includes(status);
+};
+const pagination = ref({
+  current_page: 1,
+  last_page: 1,
+  per_page: 10,
+  total: 0,
+});
+
 const fetchDeliveryNotes = async () => {
   isLoading.value = true;
   try {
-    const params = {};
+    const params = {
+      per_page: 10,
+    };
     if (selectedStatus.value !== "all") params.status = selectedStatus.value;
     const { data } = await axios.get("/api/delivery-notes", { params });
-    deliveryNotes.value = data;
+    deliveryNotes.value = data.data;
+    pagination.value = {
+      current_page: data.current_page,
+      last_page: data.last_page,
+      per_page: data.per_page,
+      total: data.total,
+    };
   } catch (err) {
     error(
       "Erreur",
@@ -155,6 +176,39 @@ const convertToInvoice = async (id) => {
   }
 };
 
+const showConsolidation = ref(false);
+const selectedDeliveryNotes = ref([]);
+const consolidatableDeliveryNotes = ref([]);
+
+const openConsolidationModal = async (customerId) => {
+  try {
+    const { data } = await axios.get(`/api/delivery-notes/${filteredDeliveryNotes.value[0]?.id}/consolidatable`);
+    consolidatableDeliveryNotes.value = data.delivery_notes || [];
+    selectedDeliveryNotes.value = [];
+    showConsolidation.value = true;
+  } catch (err) {
+    error("Erreur", err.response?.data?.message || "Impossible de charger les bons consolidables.");
+  }
+};
+
+const consolidateToInvoice = async () => {
+  if (selectedDeliveryNotes.value.length < 2) {
+    error("Erreur", "Sélectionnez au moins 2 bons de livraison.");
+    return;
+  }
+  try {
+    const { data } = await axios.post('/api/delivery-notes/consolidate-to-invoice', {
+      delivery_note_ids: selectedDeliveryNotes.value,
+      type: 'STANDARD'
+    });
+    success("Consolidée !", `La facture ${data.number} a été créée à partir de ${selectedDeliveryNotes.value.length} bons de livraison.`);
+    showConsolidation.value = false;
+    await fetchDeliveryNotes();
+  } catch (err) {
+    error("Erreur", err.response?.data?.message || "Impossible de consolider.");
+  }
+};
+
 const toggleDropdown = (id, event) => {
   if (openDropdownId.value === id) {
     closeDropdown();
@@ -162,15 +216,8 @@ const toggleDropdown = (id, event) => {
   }
   const target = event.currentTarget;
   const rect = target.getBoundingClientRect();
-  const dropdownWidth = 240;
-  const windowWidth = window.innerWidth;
-  let left = rect.left;
-  if (left + dropdownWidth > windowWidth - 10)
-    left = windowWidth - dropdownWidth - 10;
-  if (left < 10) left = 10;
   dropdownPosition.value = {
     top: rect.bottom + window.scrollY + 4,
-    left: left,
   };
   openDropdownId.value = id;
 };
@@ -306,6 +353,54 @@ onMounted(() => fetchDeliveryNotes());
               >
                 <i class="fas fa-plus"></i> Créer un Bon de Livraison
               </button>
+              <button
+                v-if="filteredDeliveryNotes.filter(dn => dn.documentable?.status === 'DELIVERED' || dn.documentable?.status === 'FINALIZED').length >= 2"
+                @click="openConsolidationModal"
+                class="!p-[10px] !bg-[#8b5cf6] !text-white border-none rounded-lg font-bold text-xs sm:text-sm justify-center transition-all duration-300 hover:-translate-y-[1px] hover:shadow-[0_8px_15px_rgba(139,92,246,0.15)] inline-flex items-center gap-2"
+              >
+                <i class="fas fa-compress-arrows-alt"></i> Consolider en facture
+              </button>
+            </div>
+          </div>
+
+          <div v-if="showConsolidation" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div class="bg-white rounded-2xl shadow-xl max-w-2xl w-full mx-4 p-6">
+              <h3 class="text-lg font-bold text-[#062121] mb-4">Consolider les bons de livraison en facture</h3>
+              <p class="text-sm text-gray-600 mb-4">Sélectionnez au moins 2 bons de livraison livrés à consolider.</p>
+              <div class="max-h-96 overflow-y-auto space-y-2 mb-4">
+                <label
+                  v-for="dn in consolidatableDeliveryNotes"
+                  :key="dn.id"
+                  class="flex items-center gap-3 p-3 rounded-lg border hover:bg-gray-50 cursor-pointer transition-colors"
+                  :class="{ 'border-purple-500 bg-purple-50': selectedDeliveryNotes.includes(dn.id) }"
+                >
+                  <input
+                    type="checkbox"
+                    :value="dn.id"
+                    v-model="selectedDeliveryNotes"
+                    class="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                  />
+                  <div class="flex-1">
+                    <div class="font-medium text-gray-900">{{ dn.number || 'Brouillon' }}</div>
+                    <div class="text-xs text-gray-500">{{ formatDate(dn.delivery_date) }} · {{ formatCurrency(dn.total_ttc) }}</div>
+                  </div>
+                </label>
+              </div>
+              <div class="flex items-center justify-end gap-3">
+                <button
+                  @click="showConsolidation = false"
+                  class="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  @click="consolidateToInvoice"
+                  :disabled="selectedDeliveryNotes.length < 2"
+                  class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Consolider ({{ selectedDeliveryNotes.length }}) bons
+                </button>
+              </div>
             </div>
           </div>
 
@@ -402,7 +497,7 @@ onMounted(() => fetchDeliveryNotes());
                   >
                     <td class="px-4 py-4 whitespace-nowrap">
                       <div class="text-sm font-semibold text-gray-900">
-                        #{{ dn.number || "—" }}
+                        #{{ dn.number || (dn.documentable?.status === 'DRAFT' ? 'Brouillon' : '—') }}
                       </div>
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap">
@@ -474,16 +569,17 @@ onMounted(() => fetchDeliveryNotes());
       ></div>
       <div
         v-if="openDropdownId"
-        class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1"
+        class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1 max-h-[360px] overflow-y-auto"
         :style="{
           top: dropdownPosition.top + 'px',
-          left: dropdownPosition.left + 'px',
+          right: '16px',
         }"
         @click.stop
       >
         <template v-for="dn in filteredDeliveryNotes" :key="dn.id">
           <div v-if="openDropdownId === dn.id">
             <button
+              v-if="!isImmutable(dn)"
               @click="editDeliveryNote(dn.id)"
               class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
             >
@@ -536,6 +632,7 @@ onMounted(() => fetchDeliveryNotes());
               <i class="fas fa-file-pdf w-4 text-red-500"></i> Télécharger PDF
             </button>
             <button
+              v-if="!isImmutable(dn)"
               @click="deleteDeliveryNote(dn.id, dn.number)"
               class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
             >

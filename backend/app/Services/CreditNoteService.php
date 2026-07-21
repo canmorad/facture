@@ -14,8 +14,59 @@ class CreditNoteService
         protected DocumentCalculationService $calculationService,
         protected NumberingService $numberingService,
         protected DocumentService $documentService,
-        protected DocumentItemService $documentItemService
+        protected DocumentItemService $documentItemService,
+        protected FiscalComplianceService $fiscalService
     ) {}
+
+    public function getPaginated(array $filters = [], int $perPage = 10)
+    {
+        $companyId = $this->getCompanyId();
+        $validStatuses = ['DRAFT', 'FINALIZED', 'SENT', 'APPLIED'];
+
+        $filters = array_merge([
+            'status' => null,
+            'search' => null,
+            'date_from' => null,
+            'date_to' => null,
+            'customer_id' => null,
+        ], $filters);
+
+        $query = Document::where('company_id', $companyId)
+            ->where('documentable_type', CreditNote::class)
+            ->with(['customer.customerable', 'items.product', 'items.product.category', 'documentable', 'parent']);
+
+        if ($filters['status'] && in_array($filters['status'], $validStatuses)) {
+            $query->whereHas('documentable', function ($q) use ($filters) {
+                $q->where('status', $filters['status']);
+            });
+        }
+
+        if ($filters['customer_id']) {
+            $query->where('customer_id', $filters['customer_id']);
+        }
+
+        if ($filters['date_from']) {
+            $query->where('created_at', '>=', $filters['date_from']);
+        }
+
+        if ($filters['date_to']) {
+            $query->where('created_at', '<=', $filters['date_to']);
+        }
+
+        if ($filters['search']) {
+            $search = $filters['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('number', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function ($cq) use ($search) {
+                        $cq->where('name', 'like', "%{$search}%");
+                    })
+                    ->orWhere('total_ht', 'like', "%{$search}%")
+                    ->orWhere('total_ttc', 'like', "%{$search}%");
+            });
+        }
+
+        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+    }
 
     public function getAll(?string $status = null)
     {
@@ -95,7 +146,9 @@ class CreditNoteService
         DB::beginTransaction();
 
         try {
-            $number = $this->numberingService->generateNumber('credit_note', $companyId);
+            // Pour un brouillon, pas de numéro officiel généré automatiquement
+            // Le numéro sera attribué lors de la finalisation
+            $number = null;
 
             $creditNote = CreditNote::create([
                 'type' => $creditNoteType,
@@ -131,7 +184,7 @@ class CreditNoteService
                 foreach ($data['items'] as $item) {
                     $newDocument->items()->create([
                         'product_id' => $item['product_id'] ?? null,
-                        'description' => $item['description'],
+                        'description' => $item['description'] ?? '',
                         'product_type' => $item['product_type'] ?? null,
                         'quantity' => $item['quantity'],
                         'unit_price' => $item['unit_price'],
@@ -247,12 +300,13 @@ class CreditNoteService
 
     public function getAvailableActions(int $creditNoteId): array
     {
-        $document = Document::with('documentable')
-            ->where('company_id', $this->getCompanyId())
-            ->where('documentable_type', CreditNote::class)
-            ->findOrFail($creditNoteId);
+        $creditNote = CreditNote::with('document')->findOrFail($creditNoteId);
+        $document = $creditNote->document;
 
-        $creditNote = $document->documentable;
+        if (!$document || $document->company_id !== $this->getCompanyId()) {
+            throw new \RuntimeException('Avoir non autorisé.');
+        }
+
         $status = $creditNote->status;
 
         $actions = [

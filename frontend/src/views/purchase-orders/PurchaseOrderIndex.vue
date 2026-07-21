@@ -16,13 +16,34 @@ const selectedStatus = ref("all");
 const openDropdownId = ref(null);
 const dropdownPosition = ref({ top: 0, left: 0 });
 
+const isImmutable = (po) => {
+  const status = po.documentable?.status;
+  return po.is_locked ||
+         po.parent_document_id ||
+         ['FINALIZED', 'SENT', 'CONFIRMED', 'CANCELLED'].includes(status);
+};
+const pagination = ref({
+  current_page: 1,
+  last_page: 1,
+  per_page: 10,
+  total: 0,
+});
+
 const fetchPurchaseOrders = async () => {
   isLoading.value = true;
   try {
-    const params = {};
+    const params = {
+      per_page: 10,
+    };
     if (selectedStatus.value !== "all") params.status = selectedStatus.value;
     const { data } = await axios.get("/api/purchase-orders", { params });
-    purchaseOrders.value = data;
+    purchaseOrders.value = data.data;
+    pagination.value = {
+      current_page: data.current_page,
+      last_page: data.last_page,
+      per_page: data.per_page,
+      total: data.total,
+    };
   } catch (err) {
     error(
       "Erreur",
@@ -148,15 +169,8 @@ const toggleDropdown = (id, event) => {
   }
   const target = event.currentTarget;
   const rect = target.getBoundingClientRect();
-  const dropdownWidth = 240;
-  const windowWidth = window.innerWidth;
-  let left = rect.left;
-  if (left + dropdownWidth > windowWidth - 10)
-    left = windowWidth - dropdownWidth - 10;
-  if (left < 10) left = 10;
   dropdownPosition.value = {
     top: rect.bottom + window.scrollY + 4,
-    left: left,
   };
   openDropdownId.value = id;
 };
@@ -414,7 +428,7 @@ onMounted(() => fetchPurchaseOrders());
                   >
                     <td class="px-4 py-4 whitespace-nowrap">
                       <div class="text-sm font-semibold text-gray-900">
-                        #{{ po.number || "—" }}
+                        #{{ po.number || (po.documentable?.status === 'DRAFT' ? 'Brouillon' : '—') }}
                       </div>
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap">
@@ -486,16 +500,17 @@ onMounted(() => fetchPurchaseOrders());
       ></div>
       <div
         v-if="openDropdownId"
-        class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1"
+        class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1 max-h-[360px] overflow-y-auto"
         :style="{
           top: dropdownPosition.top + 'px',
-          left: dropdownPosition.left + 'px',
+          right: '16px',
         }"
         @click.stop
       >
         <template v-for="po in filteredPurchaseOrders" :key="po.id">
           <div v-if="openDropdownId === po.id">
             <button
+              v-if="!isImmutable(po)"
               @click="editPurchaseOrder(po.id)"
               class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
             >
@@ -536,6 +551,7 @@ onMounted(() => fetchPurchaseOrders());
               <i class="fas fa-file-pdf w-4 text-red-500"></i> Télécharger PDF
             </button>
             <button
+              v-if="!isImmutable(po)"
               @click="deletePurchaseOrder(po.id, po.number)"
               class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
             >

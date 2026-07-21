@@ -139,7 +139,7 @@
                   :class="i % 2 === 1 ? 'bg-gray-50' : 'bg-white'"
                   :style="{ borderBottom: styleVariables.tableLineStyle === 'none' ? 'none' : styleVariables.tableLineStyle === 'bold' ? '2px solid #e5e7eb' : styleVariables.tableLineStyle === 'dashed' ? '1px dashed #d1d5db' : '1px solid #e5e7eb' }"
                 >
-                  <td class="py-1.5 px-2 text-gray-700">{{ item.product_type || 'Service' }}</td>
+                  <td class="py-1.5 px-2 text-gray-700">{{ getProductTypeLabel(item.product_type) }}</td>
                   <td class="py-1.5 px-2 text-gray-700">{{ item.description }}</td>
                   <td class="py-1.5 px-2 text-center text-gray-600">{{ item.quantity }}</td>
                   <td class="py-1.5 px-2 text-right text-gray-700">{{ fmt(item.unit_price) }}</td>
@@ -213,9 +213,27 @@ const company = ref({});
 const bankAccount = ref(null);
 const documentType = ref("");
 const isLoading = ref(true);
+const productCategories = ref([]);
 
-const docLabels = { Quote: "DEVIS", Invoice: "FACTURE", DeliveryNote: "BON DE LIVRAISON", PurchaseOrder: "BON DE COMMANDE", Deposit: "ACOMPTE", CreditNote: "AVOIR" };
-const docIcons = { Quote: "fas fa-file-signature", Invoice: "fas fa-file-invoice", DeliveryNote: "fas fa-truck", PurchaseOrder: "fas fa-shopping-cart", Deposit: "fas fa-hand-holding-usd", CreditNote: "fas fa-credit-card" };
+const getProductTypeLabel = (type) => {
+  if (!type) return 'Service';
+
+  // First check if it's a category ID
+  const category = productCategories.value.find(cat => String(cat.id) === String(type));
+  if (category) return category.name;
+
+  // Fallback to static mappings for legacy values
+  const staticLabels = {
+    'product': 'Produit',
+    'service': 'Service',
+    '1': 'Produit',
+    '2': 'Service',
+  };
+  return staticLabels[type] || type;
+};
+
+const docLabels = { Quote: "DEVIS", Invoice: "FACTURE", Proforma: "FACTURE PROFORMA", DeliveryNote: "BON DE LIVRAISON", PurchaseOrder: "BON DE COMMANDE", Deposit: "ACOMPTE", CreditNote: "AVOIR" };
+const docIcons = { Quote: "fas fa-file-signature", Invoice: "fas fa-file-invoice", Proforma: "fas fa-file-contract", DeliveryNote: "fas fa-truck", PurchaseOrder: "fas fa-shopping-cart", Deposit: "fas fa-hand-holding-usd", CreditNote: "fas fa-credit-card" };
 const dueDateLabels = { Quote: "Valide jusqu'au", Invoice: "Date d'échéance", DeliveryNote: "Livraison prévue", PurchaseOrder: "Livraison prévue" };
 
 const docLabel = computed(() => docLabels[documentType.value] || "DOCUMENT");
@@ -247,6 +265,7 @@ const fetchPreview = async () => {
     document.value = data.document;
     documentType.value = data.document_type;
     theme.value = data.theme;
+    productCategories.value = data.product_categories || [];
     company.value = {
       company_name: data.company?.company_name || "",
       address: data.company?.address || "",

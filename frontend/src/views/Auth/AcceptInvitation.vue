@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onMounted, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import axios from "axios";
 import { useAuthStore } from "@/stores/auth";
@@ -22,6 +22,12 @@ const companyName = ref("");
 const email = ref("");
 const roleName = ref("");
 const errorMessage = ref("");
+
+// For existing authenticated users
+const isExistingUser = ref(false);
+const existingUserSuccess = ref(false);
+const existingUserMessage = ref("");
+const existingUserAlreadyLinked = ref(false);
 
 const form = reactive({
   name: "",
@@ -48,11 +54,58 @@ const verifyToken = async () => {
       email.value = data.data.email;
       companyName.value = data.data.company_name;
       roleName.value = data.data.role;
+
+      // Check if this is an existing authenticated user
+      if (authStore.isAuthenticated && authStore.user?.email === email.value) {
+        isExistingUser.value = true;
+        await acceptAsExistingUser();
+      }
     }
   } catch (err) {
     errorMessage.value = err.response?.data?.message || "Cette invitation est invalide ou a expiré.";
   } finally {
     isLoading.value = false;
+  }
+};
+
+const acceptAsExistingUser = async () => {
+  isSubmitting.value = true;
+  try {
+    const { data } = await axios.post("/api/invitations/accept-existing", {
+      token: token.value,
+    });
+
+    existingUserSuccess.value = true;
+    existingUserAlreadyLinked.value = data.already_linked;
+
+    if (data.already_linked) {
+      existingUserMessage.value = `Vous faites déjà partie de ${data.company.company_name}.`;
+    } else {
+      existingUserMessage.value = `Vous avez été ajouté à ${data.company.company_name} avec succès.`;
+      // Update auth store with new company
+      authStore.addCompany({
+        id: data.company.id,
+        company_name: data.company.company_name,
+        role: data.company.role?.name || 'member',
+        pivot: {
+          role_id: data.company.role?.id,
+        },
+      });
+    }
+  } catch (err) {
+    if (err.response?.status === 422) {
+      // Validation error or business logic error
+      if (err.response.data.message.includes("pas destinée")) {
+        // Invitation is for a different email
+        isExistingUser.value = false;
+      } else {
+        errorMessage.value = err.response.data.message || "Erreur lors de l'acceptation de l'invitation.";
+      }
+    } else {
+      errorMessage.value = err.response?.data?.message || "Une erreur est survenue.";
+    }
+  } finally {
+    isSubmitting.value = false;
   }
 };
 
@@ -102,6 +155,22 @@ const submit = async () => {
   }
 };
 
+const goToDashboard = () => {
+  router.push({ name: "dashboard" });
+};
+
+const switchToNewCompany = () => {
+  // Switch to the newly added company and go to dashboard
+  if (companyName.value && authStore.companies.length > 1) {
+    // Find the company that matches the invitation
+    const newCompany = authStore.companies.find(c => c.company_name === companyName.value);
+    if (newCompany) {
+      authStore.setActiveCompany(newCompany.id);
+    }
+  }
+  router.push({ name: "dashboard" });
+};
+
 onMounted(() => {
   verifyToken();
 });
@@ -130,7 +199,7 @@ onMounted(() => {
             Vous avez été invité à rejoindre <strong>{{ companyName }}</strong>.
           </p>
 
-          <InputError class="mt-2" :message="errors.server" />
+          <InputError class="mt-2" :message="errors.server || errorMessage" />
         </div>
 
         <div v-if="isLoading" class="text-center py-8">
@@ -141,12 +210,50 @@ onMounted(() => {
           <p class="mt-2 text-gray-500">Vérification de l'invitation...</p>
         </div>
 
+        <!-- Success for existing authenticated user -->
+        <div v-else-if="existingUserSuccess" class="text-center py-8">
+          <div class="mb-6">
+            <i class="fas fa-check-circle text-6xl text-green-500 mb-4 block"></i>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">{{ existingUserMessage }}</h2>
+            <p class="text-gray-600 text-sm">
+              Vous pouvez maintenant accéder à cette entreprise depuis votre compte.
+            </p>
+          </div>
+
+          <div class="bg-[#F4F7F7] border border-gray-200 rounded-lg p-4 text-sm text-gray-600 flex items-center justify-center gap-2 mb-6">
+            <i class="fas fa-building text-[#062121]"></i>
+            <span><strong>{{ companyName }}</strong></span>
+            <span class="mx-1">·</span>
+            <i class="fas fa-user-tag"></i>
+            <span>{{ roleName }}</span>
+          </div>
+
+          <div class="space-y-3">
+            <PrimaryButton
+              @click="switchToNewCompany"
+              class="w-full !p-[14px] !bg-[#062121] !text-white border-none rounded-lg font-bold text-sm sm:text-base justify-center transition-all duration-300 hover:-translate-y-[2px] hover:shadow-[0_8px_15px_rgba(15,23,42,0.15)]"
+            >
+              <i class="fas fa-exchange-alt mr-2"></i>
+              Accéder à {{ companyName }}
+            </PrimaryButton>
+
+            <PrimaryButton
+              @click="goToDashboard"
+              class="w-full !p-[14px] bg-white text-[#062121] border-2 border-[#062121] rounded-lg font-bold text-sm sm:text-base justify-center transition-all duration-300 hover:bg-gray-50"
+            >
+              Aller au tableau de bord
+            </PrimaryButton>
+          </div>
+        </div>
+
+        <!-- Error state -->
         <div v-else-if="!isValid" class="text-center py-8">
           <i class="fas fa-exclamation-circle text-5xl text-red-400 mb-4 block"></i>
           <p class="text-gray-700 font-medium">{{ errorMessage }}</p>
           <p class="text-gray-400 text-sm mt-2">Contactez l'administrateur pour obtenir une nouvelle invitation.</p>
         </div>
 
+        <!-- Registration form for new users -->
         <form v-else @submit.prevent="submit" class="space-y-[22px]">
           <div>
             <InputLabel for="email" value="Adresse email" />
@@ -194,6 +301,7 @@ onMounted(() => {
 
           <div class="pt-3">
             <PrimaryButton
+              type="submit"
               class="w-full !p-[14px] !bg-[#062121] !text-white border-none rounded-lg font-bold text-sm sm:text-base justify-center transition-all duration-300 hover:-translate-y-[2px] hover:shadow-[0_8px_15px_rgba(15,23,42,0.15)]"
               :class="{ 'opacity-25': isSubmitting }"
               :disabled="isSubmitting"

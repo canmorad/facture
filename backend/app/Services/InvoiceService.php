@@ -16,8 +16,67 @@ class InvoiceService
         protected DocumentCalculationService $calculationService,
         protected NumberingService $numberingService,
         protected DocumentService $documentService,
-        protected DocumentItemService $documentItemService
+        protected DocumentItemService $documentItemService,
+        protected FiscalComplianceService $fiscalService
     ) {}
+
+    public function getPaginated(array $filters = [], int $perPage = 10)
+    {
+        $companyId = $this->getCompanyId();
+        $validStatuses = ['DRAFT', 'FINALIZED', 'SENT', 'PAID', 'OVERDUE', 'CANCELLED'];
+        $validTypes = ['STANDARD', 'ACOMPTE', 'SOLDE'];
+
+        $filters = array_merge([
+            'status' => null,
+            'type' => null,
+            'search' => null,
+            'date_from' => null,
+            'date_to' => null,
+            'customer_id' => null,
+        ], $filters);
+
+        $query = Document::where('company_id', $companyId)
+            ->where('documentable_type', Invoice::class)
+            ->with(['customer.customerable', 'items.product', 'items.product.category', 'documentable', 'parent']);
+
+        if ($filters['status'] && in_array($filters['status'], $validStatuses)) {
+            $query->whereHas('documentable', function ($q) use ($filters) {
+                $q->where('status', $filters['status']);
+            });
+        }
+
+        if ($filters['type'] && in_array($filters['type'], $validTypes)) {
+            $query->whereHas('documentable', function ($q) use ($filters) {
+                $q->where('type', $filters['type']);
+            });
+        }
+
+        if ($filters['customer_id']) {
+            $query->where('customer_id', $filters['customer_id']);
+        }
+
+        if ($filters['date_from']) {
+            $query->where('created_at', '>=', $filters['date_from']);
+        }
+
+        if ($filters['date_to']) {
+            $query->where('created_at', '<=', $filters['date_to']);
+        }
+
+        if ($filters['search']) {
+            $search = $filters['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('number', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function ($cq) use ($search) {
+                        $cq->where('name', 'like', "%{$search}%");
+                    })
+                    ->orWhere('total_ht', 'like', "%{$search}%")
+                    ->orWhere('total_ttc', 'like', "%{$search}%");
+            });
+        }
+
+        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+    }
 
     public function getAll(?string $status = null)
     {
@@ -25,7 +84,7 @@ class InvoiceService
 
         $query = Document::where('company_id', $companyId)
             ->where('documentable_type', Invoice::class)
-            ->with(['customer.customerable', 'items', 'documentable', 'parent']);
+            ->with(['customer.customerable', 'items.product', 'items.product.category', 'documentable', 'parent']);
 
         if ($status && in_array($status, ['DRAFT', 'FINALIZED', 'SENT', 'PAID', 'OVERDUE', 'CANCELLED'])) {
             $query->whereHas('documentable', function ($q) use ($status) {
@@ -165,6 +224,8 @@ class InvoiceService
             $invoice = $document->documentable;
             $invoice->transitionTo('FINALIZED');
 
+            $this->fiscalService->lockDocument($document, 'finalized_document_immutable');
+
             DB::commit();
 
             return $document->fresh(['customer.customerable', 'items', 'documentable', 'parent']);
@@ -191,62 +252,6 @@ class InvoiceService
             DB::commit();
 
             return $document->fresh(['customer.customerable', 'items', 'documentable', 'parent']);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            throw $e;
-        }
-    }
-
-    public function markPaid(int $id, ?array $deductionDepositIds = null): Document
-    {
-        $document = $this->documentService->findOrFail($id);
-
-        if ($document->documentable_type !== Invoice::class) {
-            throw new \InvalidArgumentException('Le document n\'est pas une facture.');
-        }
-
-        DB::beginTransaction();
-
-        try {
-            $invoice = $document->documentable;
-
-            if ($deductionDepositIds && !empty($deductionDepositIds)) {
-                foreach ($deductionDepositIds as $depositId) {
-                    $deposit = Deposit::findOrFail($depositId);
-
-                    if ($deposit->status !== 'PAID') {
-                        throw new \RuntimeException('L\'acompte #' . $depositId . ' n\'est pas encore payé.');
-                    }
-
-                    if ($deposit->company_id !== $this->getCompanyId()) {
-                        throw new \RuntimeException('Acompte non autorisé.');
-                    }
-
-                    $alreadyDeducted = InvoiceDeduction::where('deducted_deposit_id', $depositId)->exists();
-                    if ($alreadyDeducted) {
-                        throw new \RuntimeException('L\'acompte #' . $depositId . ' a déjà été déduit.');
-                    }
-
-                    $depositAmount = $deposit->input_value;
-
-                    $totalDeducted = InvoiceDeduction::where('invoice_id', $invoice->id)->sum('amount');
-                    if (($totalDeducted + $depositAmount) > $document->total_ttc) {
-                        throw new \RuntimeException('Le montant total des déductions ne peut pas dépasser le total de la facture.');
-                    }
-
-                    InvoiceDeduction::create([
-                        'invoice_id' => $invoice->id,
-                        'deducted_deposit_id' => $depositId,
-                        'amount' => $depositAmount,
-                    ]);
-                }
-            }
-
-            $invoice->transitionTo('PAID');
-
-            DB::commit();
-
-            return $document->fresh(['customer.customerable', 'items', 'documentable', 'parent', 'documentable.deductions']);
         } catch (\Throwable $e) {
             DB::rollBack();
             throw $e;
@@ -371,13 +376,15 @@ class InvoiceService
 
     public function getAvailableActions(int $invoiceId): array
     {
-        $document = Document::with('documentable', 'children')
-            ->where('company_id', $this->getCompanyId())
-            ->where('documentable_type', Invoice::class)
-            ->findOrFail($invoiceId);
+        $invoice = Invoice::with('document')->findOrFail($invoiceId);
+        $document = $invoice->document;
 
-        $invoice = $document->documentable;
+        if (!$document || $document->company_id !== $this->getCompanyId()) {
+            throw new \RuntimeException('Facture non autorisée.');
+        }
+
         $status = $invoice->status;
+        $isLocked = $document->is_locked;
 
         $actions = [
             'can_finalize' => false,
@@ -390,7 +397,7 @@ class InvoiceService
             'can_delete' => false,
         ];
 
-        if ($status === 'DRAFT') {
+        if ($status === 'DRAFT' && !$isLocked) {
             $actions['can_edit'] = true;
             $actions['can_finalize'] = true;
             $actions['can_delete'] = $document->children()->count() === 0;
@@ -414,7 +421,7 @@ class InvoiceService
 
         if ($status === 'OVERDUE') {
             $actions['can_mark_paid'] = true;
-            $actions['can_cancel'] = true;
+            $actions['can_cancel'] = $this->fiscalService->canCancelWithoutCreditNote($document);
             $actions['can_download'] = true;
         }
 
@@ -437,6 +444,9 @@ class InvoiceService
 
         try {
             $document->update([
+                'customer_id' => $data['customer_id'] ?? $document->customer_id,
+                'bank_account_id' => $data['bank_account_id'] ?? $document->bank_account_id,
+                'due_date' => $data['due_date'] ?? $document->due_date,
                 'notes' => $data['notes'] ?? $document->notes,
                 'terms' => $data['terms'] ?? $document->terms,
                 'intro_text' => $data['intro_text'] ?? $document->intro_text,
@@ -445,6 +455,8 @@ class InvoiceService
                 'payment_condition' => $data['payment_condition'] ?? $document->payment_condition,
                 'payment_mode' => $data['payment_mode'] ?? $document->payment_mode,
                 'late_fee_interest' => $data['late_fee_interest'] ?? $document->late_fee_interest,
+                'global_discount_type' => $data['global_discount_type'] ?? $document->global_discount_type,
+                'global_discount_value' => $data['global_discount_value'] ?? $document->global_discount_value,
             ]);
 
             DB::commit();
@@ -573,6 +585,42 @@ class InvoiceService
             DB::rollBack();
             throw $e;
         }
+    }
+
+    public function getPaymentSummary(int $invoiceId): array
+    {
+        $document = $this->documentService->findOrFail($invoiceId);
+
+        if ($document->documentable_type !== Invoice::class) {
+            throw new \InvalidArgumentException('Le document n\'est pas une facture.');
+        }
+
+        $invoice = $document->documentable;
+
+        // Get completed payments
+        $payments = \App\Models\Payment::where('invoice_id', $invoice->id)
+            ->where('company_id', $this->getCompanyId())
+            ->where('status', 'completed')
+            ->with(['cashTransaction', 'paymentDocument'])
+            ->get();
+
+        $totalPaid = $payments->sum('amount');
+        $totalDeductions = $invoice->deductions()->sum('amount');
+        $totalTtc = $document->total_ttc;
+
+        $remainingAmount = max(0, $totalTtc - $totalDeductions - $totalPaid);
+
+        return [
+            'total_ttc' => (float) $totalTtc,
+            'total_paid' => (float) $totalPaid,
+            'total_deductions' => (float) $totalDeductions,
+            'remaining_amount' => (float) $remainingAmount,
+            'payment_percentage' => $totalTtc > 0
+                ? round((($totalDeductions + $totalPaid) / $totalTtc) * 100, 2)
+                : 0,
+            'is_fully_paid' => $remainingAmount <= 0.01,
+            'payments' => $payments,
+        ];
     }
 
     protected function getCompanyId(): int

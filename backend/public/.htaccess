@@ -3,6 +3,15 @@
         Options -MultiViews -Indexes
     </IfModule>
 
+    # Augmenter la limite de taille d'upload (PHP + Apache)
+    <IfModule mod_php.c>
+        php_value upload_max_filesize 50M
+        php_value post_max_size 50M
+    </IfModule>
+
+    # Augmenter la limite Apache pour le corps de requête (50 MB)
+    LimitRequestBody 52428800
+
     RewriteEngine On
 
     # Handle Authorization Header

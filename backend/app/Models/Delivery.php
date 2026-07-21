@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Traits\LogsActivityTrait;
 use Illuminate\Database\Eloquent\Model;
 
 class Delivery extends Model
 {
+    use LogsActivityTrait;
     protected $fillable = [
         'user_id',
         'client_id',

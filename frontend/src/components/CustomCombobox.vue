@@ -110,6 +110,10 @@ const closeDropdown = () => {
   isOpen.value = false;
 };
 
+const handleBlur = () => {
+  setTimeout(closeDropdown, 200);
+};
+
 watch(
   () => props.modelValue,
   (newVal) => {
@@ -149,7 +153,7 @@ onUnmounted(() => {
         :value="searchTerm"
         @input="handleInput"
         @focus="handleInputFocus"
-        @blur="window.setTimeout(closeDropdown, 200)"
+        @blur="handleBlur"
         :placeholder="placeholder"
         class="w-full rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-2 pr-10 text-sm text-gray-700 focus:border-[#C5F82A] focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-[#C5F82A]/20 transition-all duration-300"
       />

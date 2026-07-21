@@ -53,6 +53,7 @@ class NumberingSerieController extends Controller
                 'start_from_balance_invoice' => 'required|integer|min:0',
                 'start_from_delivery_note' => 'required|integer|min:0',
                 'start_from_purchase_order' => 'required|integer|min:0',
+                'start_from_bank_remittance' => 'required|integer|min:0',
             ]);
 
             $validated['company_id'] = $companyId;
@@ -61,6 +62,7 @@ class NumberingSerieController extends Controller
                 'start_from_invoice', 'start_from_quote', 'start_from_credit_note',
                 'start_from_deposit_invoice', 'start_from_deposit_credit_note',
                 'start_from_balance_invoice', 'start_from_delivery_note', 'start_from_purchase_order',
+                'start_from_bank_remittance',
             ];
 
             foreach ($startFields as $field) {
@@ -106,12 +108,14 @@ class NumberingSerieController extends Controller
                 'start_from_balance_invoice' => 'sometimes|integer|min:0',
                 'start_from_delivery_note' => 'sometimes|integer|min:0',
                 'start_from_purchase_order' => 'sometimes|integer|min:0',
+                'start_from_bank_remittance' => 'sometimes|integer|min:0',
             ]);
 
             $startFields = [
                 'start_from_invoice', 'start_from_quote', 'start_from_credit_note',
                 'start_from_deposit_invoice', 'start_from_deposit_credit_note',
                 'start_from_balance_invoice', 'start_from_delivery_note', 'start_from_purchase_order',
+                'start_from_bank_remittance',
             ];
 
             foreach ($startFields as $field) {

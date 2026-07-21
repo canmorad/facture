@@ -13,7 +13,7 @@ class DocumentItemService
                 'document_id' => $documentId,
                 'product_id' => $item['product_id'] ?? null,
                 'product_type' => $item['product_type'] ?? null,
-                'description' => $item['designation'],
+                'description' => $item['designation'] ?? $item['description'] ?? 'Article',
                 'quantity' => $item['quantity'],
                 'unit_price' => $item['unit_price'],
                 'tax_rate' => $item['tax_rate'],

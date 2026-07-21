@@ -14,14 +14,31 @@ const isLoading = ref(false);
 const selectedStatus = ref("all");
 const openDropdownId = ref(null);
 const dropdownPosition = ref({ top: 0, left: 0 });
+const showSignDateModal = ref(false);
+const signDateValue = ref("");
+const selectedQuoteForSign = ref(null);
+const pagination = ref({
+  current_page: 1,
+  last_page: 1,
+  per_page: 10,
+  total: 0,
+});
 
 const fetchDevis = async () => {
   isLoading.value = true;
   try {
-    const params = {};
+    const params = {
+      per_page: 10,
+    };
     if (selectedStatus.value !== "all") params.status = selectedStatus.value;
     const { data } = await axios.get("/api/quotes", { params });
-    devis.value = data;
+    devis.value = data.data;
+    pagination.value = {
+      current_page: data.current_page,
+      last_page: data.last_page,
+      per_page: data.per_page,
+      total: data.total,
+    };
   } catch (err) {
     error(
       "Erreur",
@@ -38,6 +55,13 @@ const filteredDevis = computed(() => {
     (d) => d.documentable?.status === selectedStatus.value,
   );
 });
+
+const isImmutable = (quote) => {
+  const status = quote.documentable?.status;
+  return quote.is_locked ||
+         quote.parent_document_id ||
+         ['FINALIZED', 'SENT', 'SIGNED', 'EXPIRED'].includes(status);
+};
 
 const getStatusBadgeClass = (status) => {
   const classes = {
@@ -68,14 +92,8 @@ const toggleDropdown = (id, event) => {
   }
   const target = event.currentTarget;
   const rect = target.getBoundingClientRect();
-  const dropdownWidth = 240;
-  let left = rect.left;
-  if (left + dropdownWidth > window.innerWidth - 10)
-    left = window.innerWidth - dropdownWidth - 10;
-  if (left < 10) left = 10;
   dropdownPosition.value = {
     top: rect.bottom + window.scrollY + 4,
-    left: left,
   };
   openDropdownId.value = id;
 };
@@ -130,11 +148,25 @@ const finalizeDevis = async (id) => {
   }
 };
 
-const signDevis = async (quote) => {
+const signDevis = (quote) => {
   closeDropdown();
+  selectedQuoteForSign.value = quote;
+  const now = new Date();
+  signDateValue.value = now.toISOString().slice(0, 16);
+  showSignDateModal.value = true;
+};
+
+const confirmSignDevis = async () => {
+  if (!selectedQuoteForSign.value) return;
+
   try {
-    await axios.put(`/api/quotes/${quote.id}/sign`);
-    success("Signé !", `Le devis ${quote.number} a été marqué comme signé.`);
+    const signedAt = signDateValue.value ? new Date(signDateValue.value).toISOString() : null;
+    await axios.put(`/api/quotes/${selectedQuoteForSign.value.id}/sign`, {
+      signed_at: signedAt,
+    });
+    success("Signé !", `Le devis ${selectedQuoteForSign.value.number} a été marqué comme signé.`);
+    showSignDateModal.value = false;
+    selectedQuoteForSign.value = null;
     await fetchDevis();
   } catch (err) {
     error(
@@ -146,12 +178,16 @@ const signDevis = async (quote) => {
 
 const convertToInvoice = (quote) => {
   closeDropdown();
-  router.push({ name: "invoice.create", query: { quote_id: quote.id } });
+  const quoteId = quote.documentable?.id || quote.id;
+  console.log('[QuoteIndex] convertToInvoice - quoteId:', quoteId, 'quote:', quote);
+  router.push({ name: "invoice.create", query: { quote_id: quoteId } });
 };
 
 const convertToPurchaseOrder = (quote) => {
   closeDropdown();
-  router.push({ name: "purchase-order.create", query: { quote_id: quote.id } });
+  const quoteId = quote.documentable?.id || quote.id;
+  console.log('[QuoteIndex] convertToPurchaseOrder - quoteId:', quoteId, 'quote:', quote);
+  router.push({ name: "purchase-order.create", query: { quote_id: quoteId } });
 };
 
 const copyUrl = (id) => {
@@ -184,34 +220,19 @@ const createDeposit = (quote) => {
 
 const createDeliveryNoteFromQuote = (quote) => {
   closeDropdown();
-  router.push({ name: "delivery-note.create", query: { quote_id: quote.id } });
+  const quoteId = quote.documentable?.id || quote.id;
+  console.log('[QuoteIndex] createDeliveryNoteFromQuote - quoteId:', quoteId, 'quote:', quote);
+  router.push({ name: "delivery-note.create", query: { quote_id: quoteId } });
 };
 
-const convertToSoldeInvoice = async (quote) => {
+const convertToSoldeInvoice = (quote) => {
   closeDropdown();
   if (quote.documentable?.status !== "SIGNED") {
     error("Erreur", "Le devis doit être signé.");
     return;
   }
-  const result = await confirm(
-    "Créer une facture de solde",
-    `Créer une facture de solde à partir du devis ${quote.number} ?`,
-  );
-  if (!result.isConfirmed) return;
-  try {
-    const { data } = await axios.post(
-      `/api/quotes/${quote.id}/convert-to-invoice`,
-      { type: "SOLDE" },
-    );
-    success("Créée !", `La facture de solde ${data.number} a été créée.`);
-    await fetchDevis();
-    router.push("/invoices");
-  } catch (err) {
-    error(
-      "Erreur",
-      err.response?.data?.message || "Impossible de créer la facture de solde.",
-    );
-  }
+  const quoteId = quote.documentable?.id || quote.id;
+  router.push({ name: "balance-invoice.create", query: { quote_id: quoteId } });
 };
 
 const downloadPdf = (id) => {
@@ -455,7 +476,7 @@ onMounted(() => {
                   >
                     <td class="px-4 py-4 whitespace-nowrap">
                       <div class="text-sm font-semibold text-gray-900">
-                        #{{ quote.number || "—" }}
+                        #{{ quote.number || (quote.documentable?.status === 'DRAFT' ? 'Brouillon' : '—') }}
                       </div>
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap">
@@ -522,10 +543,10 @@ onMounted(() => {
       ></div>
       <div
         v-if="openDropdownId"
-        class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1"
+        class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1 max-h-[360px] overflow-y-auto"
         :style="{
           top: dropdownPosition.top + 'px',
-          left: dropdownPosition.left + 'px',
+          right: '16px',
         }"
         @click.stop
       >
@@ -533,6 +554,7 @@ onMounted(() => {
           <div v-if="openDropdownId === quote.id">
             <template v-if="quote.documentable?.status === 'DRAFT'">
               <button
+                v-if="!isImmutable(quote)"
                 @click="editDevis(quote.id)"
                 class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
               >
@@ -552,6 +574,7 @@ onMounted(() => {
                 <i class="fas fa-copy w-4 text-gray-400"></i> Dupliquer
               </button>
               <button
+                v-if="!isImmutable(quote)"
                 @click="deleteDevis(quote.id, quote.number)"
                 class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
               >
@@ -744,6 +767,42 @@ onMounted(() => {
             </template>
           </div>
         </template>
+      </div>
+
+      <div
+        v-if="showSignDateModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        @click.self="showSignDateModal = false"
+      >
+        <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+          <h3 class="text-lg font-bold text-gray-900 mb-4">Signature du Devis</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Sélectionnez la date et l'heure de signature pour le devis
+            <span class="font-semibold">{{ selectedQuoteForSign?.number || '#' + selectedQuoteForSign?.id }}</span>
+          </p>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Date et heure de signature</label>
+            <input
+              type="datetime-local"
+              v-model="signDateValue"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-[#C5F82A] focus:outline-none focus:ring-[3px] focus:ring-[#C5F82A]/20"
+            />
+          </div>
+          <div class="flex justify-end gap-3">
+            <button
+              @click="showSignDateModal = false"
+              class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Annuler
+            </button>
+            <button
+              @click="confirmSignDevis"
+              class="px-4 py-2 text-sm font-medium text-white bg-[#062121] rounded-lg hover:bg-opacity-90"
+            >
+              Signer
+            </button>
+          </div>
+        </div>
       </div>
     </Teleport>
   </AuthenticatedLayout>

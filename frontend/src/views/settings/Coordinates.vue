@@ -198,6 +198,7 @@ const submit = async () => {
     if (isCreateMode.value) {
       const response = await axios.post("/api/companies", formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        withCredentials: true,
       });
       authStore.addCompany(response.data);
       success("Entreprise créée !", "La nouvelle entreprise a été créée avec succès.");

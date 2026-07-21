@@ -44,6 +44,7 @@ const counterFields = [
   { key: 'start_from_balance_invoice', label: 'Départ Facture de solde' },
   { key: 'start_from_delivery_note', label: 'Départ Bons de livraison' },
   { key: 'start_from_purchase_order', label: 'Départ Bons de commande' },
+  { key: 'start_from_bank_remittance', label: 'Départ Remises bancaires' },
 ];
 
 const form = reactive({
@@ -59,6 +60,7 @@ const form = reactive({
   start_from_balance_invoice: 1,
   start_from_delivery_note: 1,
   start_from_purchase_order: 1,
+  start_from_bank_remittance: 1,
 });
 
 const originalStartValues = ref({
@@ -70,6 +72,7 @@ const originalStartValues = ref({
   start_from_balance_invoice: 1,
   start_from_delivery_note: 1,
   start_from_purchase_order: 1,
+  start_from_bank_remittance: 1,
 });
 
 const currentValues = ref({
@@ -81,6 +84,7 @@ const currentValues = ref({
   current_balance_invoice: 1,
   current_delivery_note: 1,
   current_purchase_order: 1,
+  current_bank_remittance: 1,
 });
 
 const errors = reactive({});
@@ -121,10 +125,8 @@ const paddedCounter = computed(() => {
 const fetchConfig = async () => {
   isLoading.value = true;
   try {
-    const companyId = authStore.currentCompanyId;
-    const { data } = await axios.get("/api/numbering-serie", {
-      params: { company_id: companyId },
-    });
+    // X-Company-Id header is already added by Axios interceptor in main.js
+    const { data } = await axios.get("/api/numbering-serie");
 
     hasDocuments.value = data.has_documents || false;
 
@@ -141,6 +143,7 @@ const fetchConfig = async () => {
         start_from_balance_invoice: serverData.start_from_balance_invoice,
         start_from_delivery_note: serverData.start_from_delivery_note,
         start_from_purchase_order: serverData.start_from_purchase_order,
+        start_from_bank_remittance: serverData.start_from_bank_remittance,
       };
 
       currentValues.value = {
@@ -152,6 +155,7 @@ const fetchConfig = async () => {
         current_balance_invoice: serverData.current_balance_invoice,
         current_delivery_note: serverData.current_delivery_note,
         current_purchase_order: serverData.current_purchase_order,
+        current_bank_remittance: serverData.current_bank_remittance,
       };
 
       authStore.updateHasNumbering(true);
@@ -166,6 +170,7 @@ const fetchConfig = async () => {
         start_from_balance_invoice: 1,
         start_from_delivery_note: 1,
         start_from_purchase_order: 1,
+        start_from_bank_remittance: 1,
       };
       Object.assign(form, defaults);
       originalStartValues.value = { ...defaults };
@@ -178,10 +183,17 @@ const fetchConfig = async () => {
         current_balance_invoice: 1,
         current_delivery_note: 1,
         current_purchase_order: 1,
+        current_bank_remittance: 1,
       };
       authStore.updateHasNumbering(false);
     }
-  } catch {
+  } catch (err) {
+    // Handle 401 Unauthorized - session not established or expired
+    if (err.response?.status === 401) {
+      // Redirect to login if auth fails
+      router.push({ name: 'login' });
+      return;
+    }
     error("Erreur", "Impossible de charger la configuration.");
   } finally {
     isLoading.value = false;
@@ -205,6 +217,7 @@ const resetToDefault = () => {
     start_from_balance_invoice: 1,
     start_from_delivery_note: 1,
     start_from_purchase_order: 1,
+    start_from_bank_remittance: 1,
   };
   Object.assign(form, defaults);
   Object.keys(originalStartValues.value).forEach(key => {
@@ -240,7 +253,7 @@ const submit = async () => {
   const startFields = [
     'start_from_invoice', 'start_from_quote', 'start_from_credit_note',
     'start_from_deposit_invoice', 'start_from_deposit_credit_note', 'start_from_balance_invoice',
-    'start_from_delivery_note', 'start_from_purchase_order'
+    'start_from_delivery_note', 'start_from_purchase_order', 'start_from_bank_remittance'
   ];
 
   startFields.forEach(field => {
@@ -270,6 +283,7 @@ const submit = async () => {
       start_from_balance_invoice: response.data.start_from_balance_invoice,
       start_from_delivery_note: response.data.start_from_delivery_note,
       start_from_purchase_order: response.data.start_from_purchase_order,
+      start_from_bank_remittance: response.data.start_from_bank_remittance,
     };
     currentValues.value = {
       current_invoice: response.data.current_invoice,
@@ -280,11 +294,17 @@ const submit = async () => {
       current_balance_invoice: response.data.current_balance_invoice,
       current_delivery_note: response.data.current_delivery_note,
       current_purchase_order: response.data.current_purchase_order,
+      current_bank_remittance: response.data.current_bank_remittance,
     };
     authStore.updateHasNumbering(true);
     success("Enregistré !", "La configuration a été mise à jour.");
     router.push({ name: "dashboard" });
   } catch (err) {
+    // Handle 401 Unauthorized - session not established or expired
+    if (err.response?.status === 401) {
+      router.push({ name: 'login' });
+      return;
+    }
     if (err.response?.status === 422) {
       const errorData = err.response.data;
       if (errorData.errors) {

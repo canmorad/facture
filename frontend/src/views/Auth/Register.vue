@@ -37,7 +37,7 @@ const submit = async () => {
 
   try {
     await axios.get("/sanctum/csrf-cookie");
-    const response = await axios.post("/register", form);
+    const response = await axios.post("/api/register", form);
     authStore.setAuthData(response.data);
 
     // After registration, email is not yet verified, so redirect to verify-email

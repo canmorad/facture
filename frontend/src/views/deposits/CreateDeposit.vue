@@ -11,7 +11,7 @@
               class="pb-3 text-sm font-bold transition-colors flex items-center gap-2 text-[#062121] border-b-2 border-[#C5F82A]"
             >
               <i class="fas fa-file-invoice-dollar text-[#062121]"></i>
-              Nouvelle facture d'acompte
+              {{ isEditMode ? "Modifier la facture d'acompte" : "Nouvelle facture d'acompte" }}
             </button>
           </div>
 
@@ -42,50 +42,41 @@
             <InputError class="mt-2" :message="errors.server" />
 
             <!-- Document lié -->
-            <div>
-              <InputLabel for="quote_id" value="Document lié *" />
-              <CustomSelect
-                id="quote_id"
-                v-model="form.quote_id"
-                :options="
-                  lookupData.quotes.map((q) => ({
-                    label: `${q.document.number ? '#' + q.document.number : 'Brouillon'} - ${q.document.customer?.name || 'Client'} (${q.document.total_ttc} DH)`,
-                    value: q.id,
-                  }))
-                "
-                label-key="label"
-                value-key="value"
-                placeholder="Sélectionner un devis"
-              />
-              <InputError class="mt-2" :message="errors.quote_id" />
-            </div>
+            <LinkedDocumentInfo
+              v-if="devis"
+              :document="devis"
+              document-type="devis"
+              :balance-data="balanceDataWithAlias"
+            />
 
-            <!-- Solde restant -->
-            <div
-              v-if="form.quote_id"
-              class="bg-white rounded-xl border border-gray-200 p-4 space-y-2"
-            >
-              <div class="flex justify-between text-sm">
-                <span class="text-gray-500">Total du devis (TTC)</span>
-                <span class="font-semibold"
-                  >{{ balanceData.quote_total_ttc.toFixed(2) }} DH</span
-                >
-              </div>
-              <div class="flex justify-between text-sm">
-                <span class="text-gray-500">Acomptes déjà versés (TTC)</span>
-                <span class="font-semibold text-orange-600"
-                  >{{ balanceData.deposited_total_ttc.toFixed(2) }} DH</span
-                >
-              </div>
-              <div
-                class="flex justify-between text-sm border-t border-gray-200 pt-2"
-              >
-                <span class="text-gray-700 font-bold"
-                  >Solde restant disponible (TTC)</span
-                >
-                <span class="font-bold text-[#062121]"
-                  >{{ balanceData.remaining_balance.toFixed(2) }} DH</span
-                >
+            <!-- Sélection du client (uniquement si pas de devis lié) -->
+            <div v-if="!devis" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <InputLabel for="customer_id" value="Client *" />
+                <CustomSelect
+                  id="customer_id"
+                  v-model="form.customer_id"
+                  :options="
+                    lookupData.customers.length
+                      ? lookupData.customers.map((c) => ({
+                          label:
+                            c.customerable?.name ||
+                            c.customerable?.legal_name ||
+                            'Client',
+                          value: c.id,
+                        }))
+                      : [{ label: 'Aucun client disponible', value: null }]
+                  "
+                  label-key="label"
+                  value-key="value"
+                  :placeholder="
+                    lookupData.customers.length
+                      ? 'Sélectionner un client'
+                      : 'Aucun client disponible'
+                  "
+                  :disabled="!lookupData.customers.length"
+                />
+                <InputError class="mt-2" :message="errors.customer_id" />
               </div>
             </div>
 
@@ -94,7 +85,7 @@
               <div>
                 <InputLabel for="input_type" value="Type de montant" />
                 <div class="flex gap-4 mt-2">
-                  <label class="inline-flex items-center gap-2 cursor-pointer">
+                  <label v-if="devis" class="inline-flex items-center gap-2 cursor-pointer">
                     <CustomRadio
                       v-model="form.input_type"
                       value="percentage"
@@ -130,12 +121,8 @@
             <!-- Date d'échéance et TVA -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                 <InputLabel for="due_date" value="Date d'échéance" />
-                 <TextInput
-                   id="due_date"
-                   type="date"
-                   v-model="form.due_date"
-                 />
+                <InputLabel for="due_date" value="Date d'échéance" />
+                <TextInput id="due_date" type="date" v-model="form.due_date" />
                 <InputError class="mt-2" :message="errors.due_date" />
               </div>
               <div>
@@ -420,6 +407,7 @@ import TextareaInput from "@/components/TextareaInput.vue";
 import CustomSelect from "@/components/CustomSelect.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import CustomRadio from "@/components/CustomRadio.vue";
+import LinkedDocumentInfo from "@/components/LinkedDocumentInfo.vue";
 
 const router = useRouter();
 const route = useRoute();
@@ -429,9 +417,11 @@ const isLoading = ref(false);
 const isSaving = ref(false);
 const isFetchingBalance = ref(false);
 const isFetchingQuote = ref(false);
+const isEditMode = computed(() => !!route.params.id);
 
 const lookupData = ref({
   quotes: [],
+  customers: [],
   tax_rates: [],
   bank_accounts: [],
   payment_conditions: [],
@@ -446,10 +436,30 @@ const balanceData = ref({
   remaining_balance: 0,
 });
 
+// Alias for remaining_balance as remaining_total_ttc (per template requirement)
+const balanceDataWithAlias = computed(() => ({
+  ...balanceData.value,
+  remaining_total_ttc: balanceData.value.remaining_balance,
+}));
+
 const selectedQuote = ref(null);
+
+const linkedQuote = computed(() => {
+  if (form.quote_id) {
+    return lookupData.value.quotes.find((q) => q.id === form.quote_id) || selectedQuote.value;
+  }
+  return selectedQuote.value;
+});
+
+// Simplified access to devis data for template
+const devis = computed(() => {
+  return linkedQuote.value?.document || null;
+});
+
 const form = reactive({
+  customer_id: null,
   quote_id: null,
-  input_type: "percentage",
+  input_type: "fixed",
   input_value: 0,
   due_date: "",
   tax_rate: 20,
@@ -466,6 +476,7 @@ const form = reactive({
 });
 
 const errors = reactive({
+  customer_id: "",
   quote_id: "",
   input_type: "",
   input_value: "",
@@ -496,27 +507,39 @@ const totalTva = computed(() => {
 });
 
 const depositTtc = computed(() => {
-  if (!form.quote_id) return 0;
   const value = parseFloat(form.input_value) || 0;
-  if (form.input_type === "percentage") {
-    return balanceData.value.quote_total_ttc * (value / 100);
+
+  // If linked to a quote, calculate based on quote total
+  if (form.quote_id && balanceData.value.quote_total_ttc) {
+    if (form.input_type === "percentage") {
+      return balanceData.value.quote_total_ttc * (value / 100);
+    }
+    return value;
   }
+
+  // Standalone deposit (no quote) - use fixed value directly
   return value;
 });
 
 const isDepositValid = computed(() => {
-  return (
-    depositTtc.value > 0 &&
-    depositTtc.value <= balanceData.value.remaining_balance
-  );
+  // If linked to a quote, validate against remaining balance
+  if (form.quote_id && balanceData.value.remaining_balance) {
+    return (
+      depositTtc.value > 0 &&
+      depositTtc.value <= balanceData.value.remaining_balance
+    );
+  }
+  // Standalone deposit - just check amount is positive
+  return depositTtc.value > 0;
 });
 
 const canSubmit = computed(() => {
-  return (
-    form.quote_id &&
-    form.input_value > 0 &&
-    isDepositValid.value
-  );
+  // Soit un devis lié avec montant valide, soit un client sélectionné avec montant
+  if (form.input_value <= 0) return false;
+  if (form.quote_id) {
+    return isDepositValid.value;
+  }
+  return form.customer_id != null;
 });
 
 const fetchLookups = async () => {
@@ -572,7 +595,9 @@ const fetchBalance = async (quoteId) => {
 
   isFetchingBalance.value = true;
   try {
-    const { data } = await axios.get(`/api/deposits/remaining-balance/${quoteId}`);
+    const { data } = await axios.get(
+      `/api/deposits/remaining-balance/${quoteId}`,
+    );
     balanceData.value = data;
   } catch (err) {
     const message =
@@ -590,62 +615,136 @@ const fetchQuoteDetails = async (quoteId) => {
   try {
     const { data } = await axios.get(`/api/quotes/${quoteId}`);
     selectedQuote.value = data;
-    form.quote_id = data.id;
-    form.tax_rate = data.document?.items?.[0]?.tax_rate || data.tax_rate || 20;
+    form.quote_id = quoteId; // Use the quoteId parameter directly (Quote ID from quotes table)
+    form.tax_rate = data.document?.items?.[0]?.tax_rate || data.document?.tax_rate || 20;
+    // Set customer_id from linked quote
+    form.customer_id = data.document?.customer_id;
     await fetchBalance(quoteId);
   } catch (err) {
-    const message =
-      err.response?.data?.error ||
-      "Impossible de charger les détails du devis.";
-    error("Erreur", message);
+    if (err.response?.status === 404) {
+      error("Devis introuvable", "Le devis demandé n'existe pas ou a été supprimé.");
+      router.push("/quotes");
+    } else {
+      const message =
+        err.response?.data?.error ||
+        "Impossible de charger les détails du devis.";
+      error("Erreur", message);
+    }
   } finally {
     isFetchingQuote.value = false;
   }
 };
 
+const fetchDocument = async (documentId) => {
+  isLoading.value = true;
+  try {
+    const { data } = await axios.get(`/api/deposits/${documentId}`);
+    const doc = data.document || data;
+    if (!doc) {
+      error("Erreur", "Document introuvable.");
+      router.push("/deposits");
+      return;
+    }
+
+    // Populate form with document data
+    form.customer_id = doc.customer_id;
+    form.quote_id = doc.quote_id;
+    form.input_type = doc.input_type || "fixed";
+    form.input_value = doc.amount || doc.input_value || 0;
+    form.due_date = doc.due_date || "";
+    form.tax_rate = doc.tax_rate || 20;
+    form.deposit_description = doc.deposit_description || "";
+    form.payment_condition = doc.payment_condition || "";
+    form.payment_mode = doc.payment_mode || "";
+    form.late_fee_interest = doc.late_fee_interest || "";
+    form.bank_account_id = doc.bank_account_id || null;
+    form.notes = doc.notes || "";
+    form.terms = doc.terms || "";
+    form.intro_text = doc.intro_text || "";
+    form.footer_text = doc.footer_text || "";
+    form.conclusion_text = doc.conclusion_text || "";
+
+    // Fetch balance if linked to a quote
+    if (doc.quote_id) {
+      await fetchBalance(doc.quote_id);
+    }
+  } catch (err) {
+    if (err.response?.status === 404) {
+      error("Document introuvable", "Le document demandé n'existe pas ou a été supprimé.");
+    } else {
+      error("Erreur", "Impossible de charger les données du document.");
+    }
+    router.push("/deposits");
+  } finally {
+    isLoading.value = false;
+  }
+};
+
 const submit = async () => {
   Object.keys(errors).forEach((key) => (errors[key] = ""));
-  if (!form.quote_id) {
-    errors.quote_id = "Veuillez sélectionner un devis.";
+
+  // Validation: soit un devis lié, soit un client sélectionné
+  if (!form.quote_id && !form.customer_id) {
+    errors.customer_id = "Veuillez sélectionner un client ou un devis.";
     return;
   }
-  if (!form.input_value || form.input_value <= 0) {
+
+  // Si un devis est sélectionné, valider le montant
+  if (form.quote_id) {
+    if (!form.input_value || form.input_value <= 0) {
+      errors.input_value = "Veuillez saisir un montant valide.";
+      return;
+    }
+    if (!isDepositValid.value) {
+      errors.input_value = "Le montant dépasse le solde restant disponible.";
+      return;
+    }
+  } else if (!form.input_value || form.input_value <= 0) {
+    // Pour création directe sans devis, valider quand même le montant
     errors.input_value = "Veuillez saisir un montant valide.";
-    return;
-  }
-  if (!isDepositValid.value) {
-    errors.input_value = "Le montant dépasse le solde restant disponible.";
     return;
   }
 
   const confirmed = await confirm(
-    "Enregistrer l'acompte",
-    "L'acompte sera enregistré en tant que brouillon. Vous pourrez le finaliser ultérieurement.",
+    isEditMode.value ? "Mettre à jour l'acompte" : "Enregistrer l'acompte",
+    isEditMode.value
+      ? "Les modifications seront enregistrées."
+      : "L'acompte sera enregistré en tant que brouillon. Vous pourrez le finaliser ultérieurement.",
   );
   if (!confirmed.isConfirmed) return;
 
   isSaving.value = true;
   try {
     const payload = { ...form };
-    const response = await axios.post("/api/deposits", payload);
-    success(
-      "Acompte enregistré",
-      "L'acompte a été enregistré en tant que brouillon.",
-    );
+
+    if (isEditMode.value) {
+      await axios.put(`/api/deposits/${route.params.id}`, payload);
+      success("Acompte mis à jour", "L'acompte a été mis à jour avec succès.");
+    } else {
+      await axios.post("/api/deposits", payload);
+      success("Acompte enregistré", "L'acompte a été enregistré en tant que brouillon.");
+    }
     router.push("/deposits");
   } catch (err) {
     console.error("Erreur complète :", err);
-  console.error("Status :", err.response?.status);
-  console.error("Data :", err.response?.data);
-  console.error("Message :", err.message);
+    console.error("Status :", err.response?.status);
+    console.error("Data :", err.response?.data);
+    console.error("Message :", err.message);
     if (err.response?.status === 422) {
-      const e = err.response.data.errors;
-      Object.keys(e).forEach((key) => {
-        if (key in errors) errors[key] = e[key][0];
-      });
-      if (err.response.data.error) {
-        errors.server = err.response.data.error;
+      const e = err.response.data?.errors;
+      if (e && typeof e === 'object') {
+        Object.keys(e).forEach((key) => {
+          if (key in errors) errors[key] = Array.isArray(e[key]) ? e[key][0] : e[key];
+        });
       }
+      if (err.response.data?.error) {
+        errors.server = err.response.data.error;
+      } else if (err.response.data?.message) {
+        errors.server = err.response.data.message;
+      }
+    } else if (err.response?.status === 500) {
+      errors.server = err.response.data?.message || "Une erreur interne est survenue.";
+      error("Erreur", errors.server);
     } else {
       errors.server =
         "Une erreur est survenue lors de l'enregistrement de l'acompte.";
@@ -663,10 +762,16 @@ watch(
       fetchBalance(newVal);
       const quote = lookupData.value.quotes.find((q) => q.id === newVal);
       if (quote) {
+        selectedQuote.value = quote;
         form.tax_rate = quote.document?.items?.[0]?.tax_rate || 20;
+        // Set customer_id from linked quote
+        form.customer_id = quote.document?.customer_id;
       }
+
     } else {
+      selectedQuote.value = null;
       form.tax_rate = 20;
+      form.customer_id = null; // Reset customer when quote is cleared
       balanceData.value = {
         quote_total_ttc: 0,
         deposited_total_ttc: 0,
@@ -684,13 +789,31 @@ watch(
   },
 );
 
+const loadLinkedDocument = async () => {
+  const quoteId = route.query.quote_id;
+  console.log('[CreateDeposit] quoteId:', quoteId);
+
+  if (quoteId) {
+    await fetchQuoteDetails(parseInt(quoteId));
+  }
+};
+
 onMounted(async () => {
   await fetchLookups();
-  const quoteId = route.query.quote_id;
-  if (quoteId) {
-    form.quote_id = parseInt(quoteId);
+
+  // Load document data if in edit mode
+  if (isEditMode.value) {
+    await fetchDocument(route.params.id);
+  } else {
+    await loadLinkedDocument();
   }
 });
+
+watch(() => route.query, async () => {
+  if (!isLoading.value) {
+    await loadLinkedDocument();
+  }
+}, { immediate: false });
 </script>
 
 <style scoped>

@@ -98,6 +98,114 @@ class UserController extends Controller
         }
     }
 
+    public function getAvailableUsers()
+    {
+        Gate::authorize('invite-users');
+        try {
+            $companyId = $this->getCompanyId();
+            $userId = auth()->id();
+
+            // Get all company IDs where the current user is an owner
+            $ownerCompanyIds = UserCompany::where('user_id', $userId)
+                ->whereHas('role', function ($query) {
+                    $query->where('name', 'owner');
+                })
+                ->pluck('company_id');
+
+            if ($ownerCompanyIds->isEmpty()) {
+                // If user is not an owner of any company, return empty array
+                return response()->json(['users' => []]);
+            }
+
+            // Get all user IDs that work with this owner across their companies
+            $collaboratorIds = UserCompany::whereIn('company_id', $ownerCompanyIds)
+                ->where('user_id', '!=', $userId)
+                ->pluck('user_id')
+                ->unique();
+
+            // Exclude users already in current company
+            $currentCompanyUserIds = UserCompany::where('company_id', $companyId)
+                ->pluck('user_id');
+
+            $availableUsers = User::whereIn('id', $collaboratorIds)
+                ->whereNotIn('id', $currentCompanyUserIds)
+                ->get(['id', 'name', 'email', 'is_active', 'email_verified_at'])
+                ->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'is_active' => $user->is_active,
+                        'email_verified_at' => $user->email_verified_at,
+                    ];
+                });
+
+            return response()->json(['users' => $availableUsers]);
+        } catch (\Throwable $e) {
+            Log::error('Get available users error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['success' => false, 'message' => 'Une erreur est survenue.'], 500);
+        }
+    }
+
+    public function quickAddUser(Request $request)
+    {
+        Gate::authorize('invite-users');
+        try {
+            $companyId = $this->getCompanyId();
+
+            $validated = $request->validate([
+                'user_id' => 'required|exists:users,id',
+                'role_id' => 'required|exists:roles,id',
+            ]);
+
+            // Check if user already exists in current company
+            $existing = UserCompany::where('user_id', $validated['user_id'])
+                ->where('company_id', $companyId)
+                ->first();
+
+            if ($existing) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cet utilisateur fait déjà partie de cette entreprise.',
+                ], 422);
+            }
+
+            // Get the user to verify they exist
+            $user = User::findOrFail($validated['user_id']);
+
+            // Create the company membership
+            UserCompany::create([
+                'user_id' => $validated['user_id'],
+                'company_id' => $companyId,
+                'role_id' => $validated['role_id'],
+            ]);
+
+            // Get role information
+            $role = Role::find($validated['role_id']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Utilisateur ajouté avec succès.',
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'is_active' => $user->is_active,
+                    'is_owner' => $role && $role->name === 'owner',
+                    'role' => $role ? $role->name : 'viewer',
+                    'role_label' => $role ? $this->getRoleLabel($role->name) : 'Observateur',
+                    'email_verified_at' => $user->email_verified_at,
+                ],
+            ], 201);
+        } catch (\RuntimeException $e) {
+            Log::error('Quick add user Runtime error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            Log::error('Quick add user error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json(['success' => false, 'message' => 'Une erreur est survenue lors de l\'ajout de l\'utilisateur.'], 500);
+        }
+    }
+
     public function toggleStatus(Request $request, $id)
     {
         Gate::authorize('invite-users');

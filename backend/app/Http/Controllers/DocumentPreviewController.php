@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Document;
 use App\Models\DocumentTheme;
+use App\Models\ProductCategory;
 use App\Services\QuoteService;
 use App\Services\InvoiceService;
+use App\Services\ProformaService;
 use App\Services\DeliveryNoteService;
 use App\Services\PurchaseOrderService;
 use Illuminate\Http\Request;
@@ -65,6 +67,11 @@ class DocumentPreviewController extends Controller
 
             $actions = $this->getAvailableActions($document, $documentType);
 
+            // Fetch active product categories for proper product type display
+            $productCategories = ProductCategory::where('company_id', $resolvedCompanyId)
+                ->where('is_active', true)
+                ->get(['id', 'name']);
+
             return response()->json([
                 'document' => $documentData,
                 'document_type' => $documentType,
@@ -74,6 +81,7 @@ class DocumentPreviewController extends Controller
                 'ancestor_chain' => $ancestorChain,
                 'descendant_chain' => $descendantChain,
                 'available_actions' => $actions,
+                'product_categories' => $productCategories,
             ]);
         } catch (\Throwable $e) {
             Log::error("DocumentPreview show error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
@@ -90,6 +98,7 @@ class DocumentPreviewController extends Controller
             return match ($documentType) {
                 'Quote' => app(QuoteService::class)->getAvailableActions($document->id),
                 'Invoice' => app(InvoiceService::class)->getAvailableActions($document->id),
+                'Proforma' => app(ProformaService::class)->getAvailableActions($document->id),
                 'DeliveryNote' => app(DeliveryNoteService::class)->getAvailableActions($document->id),
                 'PurchaseOrder' => app(PurchaseOrderService::class)->getAvailableActions($document->id),
                 default => [],
@@ -105,6 +114,7 @@ class DocumentPreviewController extends Controller
         $dateField = match ($type) {
             'Quote' => $document->finalized_at ?? $document->created_at,
             'Invoice' => $document->finalized_at ?? $document->created_at,
+            'Proforma' => $document->finalized_at ?? $document->created_at,
             'DeliveryNote' => $document->created_at,
             'PurchaseOrder' => $document->finalized_at ?? $document->created_at,
             'Deposit' => $document->finalized_at ?? $document->created_at,
@@ -118,6 +128,9 @@ class DocumentPreviewController extends Controller
         }
         if ($type === 'Quote' && $document->documentable) {
             $dueDateField = $document->documentable->valid_until ?? null;
+        }
+        if ($type === 'Proforma' && $document->documentable) {
+            $dueDateField = $document->documentable->validity_date ?? null;
         }
         if ($type === 'DeliveryNote' && $document->documentable) {
             $dueDateField = $document->documentable->delivery_date ?? null;

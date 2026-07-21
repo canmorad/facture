@@ -51,7 +51,10 @@ class DashboardService
 
         $activeCustomers = Customer::where('company_id', $companyId)->count();
 
-        $totalDocuments = Document::where('company_id', $companyId)->count();
+        // Count ALL document types including those outside Document table
+        $totalDocuments = Document::where('company_id', $companyId)->count()
+            + \App\Models\PurchaseInvoice::where('company_id', $companyId)->count()
+            + \App\Models\BankRemittance::where('company_id', $companyId)->count();
 
         return [
             'total_revenue' => round((float) $totalRevenue, 2),
@@ -120,9 +123,16 @@ class DashboardService
                 SUM(CASE WHEN documentable_type = 'App\\\\Models\\\\DeliveryNote' THEN 1 ELSE 0 END) as delivery_notes,
                 SUM(CASE WHEN documentable_type = 'App\\\\Models\\\\PurchaseOrder' THEN 1 ELSE 0 END) as purchase_orders,
                 SUM(CASE WHEN documentable_type = 'App\\\\Models\\\\Deposit' THEN 1 ELSE 0 END) as deposits,
-                SUM(CASE WHEN documentable_type = 'App\\\\Models\\\\CreditNote' THEN 1 ELSE 0 END) as credit_notes
+                SUM(CASE WHEN documentable_type = 'App\\\\Models\\\\CreditNote' THEN 1 ELSE 0 END) as credit_notes,
+                SUM(CASE WHEN documentable_type = 'App\\\\Models\\\\Proforma' THEN 1 ELSE 0 END) as proformas,
+                SUM(CASE WHEN documentable_type = 'App\\\\Models\\\\BalanceInvoice' THEN 1 ELSE 0 END) as balance_invoices,
+                SUM(CASE WHEN documentable_type = 'App\\\\Models\\\\RecurringInvoice' THEN 1 ELSE 0 END) as recurring_invoices
             ")
             ->first();
+
+        // Get separate counts for non-document models
+        $purchaseInvoicesCount = \App\Models\PurchaseInvoice::where('company_id', $companyId)->count();
+        $bankRemittancesCount = \App\Models\BankRemittance::where('company_id', $companyId)->count();
 
         if (!$documentCounts) {
             return [];
@@ -131,10 +141,15 @@ class DashboardService
         return [
             ['type' => 'Devis', 'icon' => 'fa-file-alt', 'color' => 'blue', 'count' => (int) ($documentCounts->quotes ?? 0)],
             ['type' => 'Factures', 'icon' => 'fa-file-invoice', 'color' => 'emerald', 'count' => (int) ($documentCounts->invoices ?? 0)],
+            ['type' => 'Factures Proforma', 'icon' => 'fa-file-contract', 'color' => 'indigo', 'count' => (int) ($documentCounts->proformas ?? 0)],
             ['type' => 'Bons de livraison', 'icon' => 'fa-truck', 'color' => 'amber', 'count' => (int) ($documentCounts->delivery_notes ?? 0)],
             ['type' => 'Bons de commande', 'icon' => 'fa-shopping-cart', 'color' => 'purple', 'count' => (int) ($documentCounts->purchase_orders ?? 0)],
+            ['type' => 'Factures d\'acompte', 'icon' => 'fa-hand-holding-usd', 'color' => 'teal', 'count' => (int) ($documentCounts->deposits ?? 0)],
+            ['type' => 'Factures de solde', 'icon' => 'fa-file-invoice-dollar', 'color' => 'rose', 'count' => (int) ($documentCounts->balance_invoices ?? 0)],
             ['type' => 'Avoirs', 'icon' => 'fa-undo', 'color' => 'red', 'count' => (int) ($documentCounts->credit_notes ?? 0)],
-            ['type' => 'Acomptes', 'icon' => 'fa-hand-holding-usd', 'color' => 'teal', 'count' => (int) ($documentCounts->deposits ?? 0)],
+            ['type' => 'Factures récurrentes', 'icon' => 'fa-rotate', 'color' => 'violet', 'count' => (int) ($documentCounts->recurring_invoices ?? 0)],
+            ['type' => 'Factures d\'achat', 'icon' => 'fa-file-import', 'color' => 'orange', 'count' => $purchaseInvoicesCount],
+            ['type' => 'Remises bancaires', 'icon' => 'fa-vault', 'color' => 'cyan', 'count' => $bankRemittancesCount],
         ];
     }
 

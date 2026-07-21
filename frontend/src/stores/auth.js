@@ -13,6 +13,8 @@ export const useAuthStore = defineStore('auth', {
       isAuthenticated: false,
       companies: [],
       currentCompanyId: storedId ? Number(storedId) : null,
+      authCheckInProgress: false, // Prevent duplicate auth fetches
+      lastAuthSetTime: null, // Track when auth was last set to prevent race conditions
     }
   },
   getters: {
@@ -33,6 +35,7 @@ export const useAuthStore = defineStore('auth', {
       this.hasNumbering = data.has_numbering ?? false
       this.isAuthenticated = !!data.user
       this.companies = data.user?.companies || []
+      this.lastAuthSetTime = Date.now() // Track when auth was set
 
       if (this.companies.length > 0 && !this.currentCompanyId) {
         const storedId = this.getStoredCompanyId()
@@ -41,11 +44,13 @@ export const useAuthStore = defineStore('auth', {
         } else {
           this.currentCompanyId = this.companies[0].id
         }
+        this.persistCompanyId(this.currentCompanyId)
       } else if (this.companies.length === 0) {
+        // User has no companies - clear currentCompanyId and localStorage
         this.currentCompanyId = null
-      }
-
-      if (this.currentCompanyId) {
+        localStorage.removeItem('current_company_id')
+      } else if (this.currentCompanyId) {
+        // User has companies and currentCompanyId is set - ensure it's persisted
         this.persistCompanyId(this.currentCompanyId)
       }
     },
@@ -58,22 +63,33 @@ export const useAuthStore = defineStore('auth', {
       this.isAuthenticated = false
       this.companies = []
       this.currentCompanyId = null
+      this.lastAuthSetTime = null
       localStorage.removeItem('current_company_id')
     },
     async fetchAuthStatus() {
+      // Prevent duplicate auth fetches
+      if (this.authCheckInProgress) {
+        return
+      }
+
       try {
-        const config = { withCredentials: true }
-        if (this.currentCompanyId) {
-          config.headers = { 'X-Company-Id': String(this.currentCompanyId) }
-        }
-        const response = await axios.get('/api/user-status', config)
+        this.authCheckInProgress = true
+        // No special config needed - axios defaults handle:
+        // - withCredentials: true (for session cookies)
+        // - X-XSRF-TOKEN header (from withXSRFToken)
+        // - X-Company-Id header (from interceptor in main.js)
+        const response = await axios.get('/api/user-status')
         this.setAuthData(response.data)
       } catch (error) {
-        if (error.response && error.response.status === 401) {
-          this.clearAuth()
-        } else {
+        // Only clear auth if we haven't recently set it (within 2 seconds)
+        // This prevents race conditions after login where session cookie isn't ready yet
+        const timeSinceAuthSet = this.lastAuthSetTime ? Date.now() - this.lastAuthSetTime : Infinity
+        if (timeSinceAuthSet > 2000) {
           this.clearAuth()
         }
+        // If recently set, keep the auth state - the retry will succeed
+      } finally {
+        this.authCheckInProgress = false
       }
     },
     async setActiveCompany(companyId) {

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facture Test - TechZone</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            max-width: 700px;
+            width: 100%;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .download-section {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #007bff;
+            color: white;
+            border-radius: 8px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background: white;
+            color: #007bff;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 0 5px;
+        }
+        .invoice-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .company-info h2 { color: #333; }
+        .company-info p { font-size: 12px; color: #666; }
+        .invoice-title {
+            text-align: right;
+        }
+        .invoice-title h1 { color: #007bff; font-size: 24px; }
+        .invoice-number { font-weight: bold; font-size: 16px; }
+
+        .addresses {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            gap: 20px;
+        }
+        .address-box {
+            flex: 1;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .from { background: #f0f0f0; }
+        .to { background: #fff9e6; }
+        .address-box h3 { font-size: 12px; color: #666; margin-bottom: 8px; }
+        .address-box p { font-size: 12px; margin: 3px 0; }
+
+        table {
+            width: 100%;
+            margin: 20px 0;
+            border-collapse: collapse;
+        }
+        thead { background: #007bff; color: white; }
+        th, td { padding: 10px; text-align: left; font-size: 12px; }
+        th { font-weight: bold; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        tbody tr:nth-child(even) { background: #f9f9f9; }
+
+        .totals {
+            float: right;
+            width: 250px;
+            margin: 20px 0;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .grand-total {
+            background: #007bff;
+            color: white;
+            font-weight: bold;
+            padding: 10px !important;
+        }
+
+        .footer {
+            clear: both;
+            margin-top: 60px;
+            padding-top: 15px;
+            border-top: 2px solid #ddd;
+            font-size: 11px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="download-section">
+            <p><strong>Facture de Test Optimisée</strong></p>
+            <button class="btn" onclick="downloadPDF()">📄 Télécharger PDF</button>
+            <button class="btn" onclick="downloadImage()">🖼️ Télécharger Image (Petite)</button>
+        </div>
+
+        <div class="invoice" id="invoice">
+            <div class="invoice-header">
+                <div class="company-info">
+                    <h2>🖥️ TechZone Maroc S.A.R.L</h2>
+                    <p>Bd Zerktouni, Casablanca</p>
+                    <p>Tél: +212 5 22 44 55 66</p>
+                    <p><strong>ICE:</strong> 001548796000085 | <strong>IF:</strong> 40251896</p>
+                </div>
+                <div class="invoice-title">
+                    <h1>FACTURE</h1>
+                    <p class="invoice-number">N° FA-2026-0894</p>
+                    <p>Date: 15/07/2026</p>
+                </div>
+            </div>
+
+            <div class="addresses">
+                <div class="address-box from">
+                    <h3>DE:</h3>
+                    <p><strong>TechZone Maroc S.A.R.L</strong></p>
+                    <p>Bd Zerktouni, Casablanca</p>
+                    <p>ICE: 001548796000085</p>
+                    <p>IF: 40251896</p>
+                </div>
+                <div class="address-box to">
+                    <h3>À:</h3>
+                    <p><strong>My Business Solution</strong></p>
+                    <p>Technopark, Casablanca</p>
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Désignation</th>
+                        <th class="text-center">Qté</th>
+                        <th class="text-right">P.U (DH)</th>
+                        <th class="text-right">Total HT</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Ordinateur Portable Lenovo Core i7</td>
+                        <td class="text-center">2</td>
+                        <td class="text-right">8,500.00</td>
+                        <td class="text-right">17,000.00</td>
+                    </tr>
+                    <tr>
+                        <td>Écran Dell 27"</td>
+                        <td class="text-center">3</td>
+                        <td class="text-right">2,100.00</td>
+                        <td class="text-right">6,300.00</td>
+                    </tr>
+                    <tr>
+                        <td>Souris Sans Fil Logitech</td>
+                        <td class="text-center">5</td>
+                        <td class="text-right">150.00</td>
+                        <td class="text-right">750.00</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="totals">
+                <div class="total-row">
+                    <span>Total HT:</span>
+                    <span>24,050.00 DH</span>
+                </div>
+                <div class="total-row">
+                    <span>TVA (20%):</span>
+                    <span>4,810.00 DH</span>
+                </div>
+                <div class="total-row grand-total">
+                    <span>Total TTC:</span>
+                    <span>28,860.00 DH</span>
+                </div>
+            </div>
+
+            <div class="footer">
+                <p><strong>Conditions de paiement:</strong> 30 jours par virement bancaire</p>
+                <p><strong>RIB:</strong> 019 780 00001234567890 12 - Attijariwafa Bank</p>
+                <p>Merci de votre confiance !</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        async function downloadPDF() {
+            const { jsPDF } = window.jspdf;
+            const element = document.getElementById('invoice');
+            document.querySelector('.download-section').style.display = 'none';
+
+            try {
+                const canvas = await html2canvas(element, {
+                    scale: 1.5,
+                    useCORS: true,
+                    logging: false
+                });
+
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const ratio = Math.min(pdfWidth / canvas.width, 1);
+                pdf.addImage(imgData, 'PNG', 0, 0, canvas.width * ratio, canvas.height * ratio);
+                pdf.save('Facture_Test_TechZone.pdf');
+            } finally {
+                document.querySelector('.download-section').style.display = 'block';
+            }
+        }
+
+        async function downloadImage() {
+            const element = document.getElementById('invoice');
+            document.querySelector('.download-section').style.display = 'none';
+
+            try {
+                const canvas = await html2canvas(element, {
+                    scale: 1,
+                    useCORS: true,
+                    backgroundColor: '#ffffff'
+                });
+
+                const link = document.createElement('a');
+                link.download = 'Facture_Test_TechZone.jpg';
+                link.href = canvas.toDataURL('image/jpeg', 0.7);
+                link.click();
+            } finally {
+                document.querySelector('.download-section').style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

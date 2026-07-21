@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Traits\HasMedia;
+use App\Traits\LogsActivityTrait;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Expense extends Model
 {
-    use HasMedia;
+    use HasMedia, LogsActivityTrait;
 
     protected $fillable = [
         'company_id',

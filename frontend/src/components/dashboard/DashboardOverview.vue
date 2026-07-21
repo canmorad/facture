@@ -11,11 +11,16 @@ const formatCurrency = (amount) =>
 const colorMap = {
   blue: "bg-blue-500", emerald: "bg-emerald-500", amber: "bg-amber-500",
   purple: "bg-purple-500", red: "bg-red-500", teal: "bg-teal-500",
+  orange: "bg-orange-500", cyan: "bg-cyan-500", indigo: "bg-indigo-500",
+  rose: "bg-rose-500", violet: "bg-violet-500",
 };
 const bgColorMap = {
   blue: "from-blue-50 to-blue-100 border-blue-200", emerald: "from-emerald-50 to-emerald-100 border-emerald-200",
   amber: "from-amber-50 to-amber-100 border-amber-200", purple: "from-purple-50 to-purple-100 border-purple-200",
   red: "from-red-50 to-red-100 border-red-200", teal: "from-teal-50 to-teal-100 border-teal-200",
+  orange: "from-orange-50 to-orange-100 border-orange-200", cyan: "from-cyan-50 to-cyan-100 border-cyan-200",
+  indigo: "from-indigo-50 to-indigo-100 border-indigo-200", rose: "from-rose-50 to-rose-100 border-rose-200",
+  violet: "from-violet-50 to-violet-100 border-violet-200",
 };
 </script>
 
@@ -63,7 +68,7 @@ const bgColorMap = {
       </div>
     </div>
 
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
       <div
         v-for="doc in documentsByType"
         :key="doc.type"

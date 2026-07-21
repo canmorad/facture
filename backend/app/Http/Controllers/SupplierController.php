@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Gate;
+use OpenApi\Annotations as OA;
 
 class SupplierController extends Controller
 {
@@ -14,11 +15,32 @@ class SupplierController extends Controller
         protected ExpenseService $expenseService
     ) {}
 
+    /**
+     * @OA\Get(
+     *     path="/api/suppliers",
+     *     summary="Get all suppliers",
+     *     description="Get a list of all suppliers for the current company",
+     *     operationId="getSuppliers",
+     *     tags={"Suppliers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\Response(
+     *         response="200",
+     *         description="Suppliers retrieved successfully",
+     *         @OA\JsonContent(type="array", @OA\Items())
+     *     )
+     * )
+     */
     public function index(): JsonResponse
     {
         Gate::authorize('view-documents');
         try {
             $suppliers = $this->expenseService->getSuppliers();
+
+            Log::info('SupplierController index', [
+                'suppliers_count' => count($suppliers),
+                'suppliers' => $suppliers,
+            ]);
 
             return response()->json($suppliers);
         } catch (\Throwable $e) {
@@ -27,6 +49,32 @@ class SupplierController extends Controller
         }
     }
 
+    /**
+     * @OA\Post(
+     *     path="/api/suppliers",
+     *     summary="Create a new supplier",
+     *     operationId="createSupplier",
+     *     tags={"Suppliers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\MediaType(
+     *             mediaType="application/json",
+     *             @OA\Schema(
+     *                 required={"name"},
+     *                 @OA\Property(property="name", type="string", maxLength=255),
+     *                 @OA\Property(property="ice", type="string", maxLength=50, nullable=true),
+     *                 @OA\Property(property="email", type="string", format="email", maxLength=255, nullable=true),
+     *                 @OA\Property(property="phone", type="string", maxLength=50, nullable=true),
+     *                 @OA\Property(property="address", type="string", maxLength=500, nullable=true)
+     *             )
+     *         )
+     *     ),
+     *
+     *     @OA\Response(response="201", description="Supplier created successfully")
+     * )
+     */
     public function store(Request $request): JsonResponse
     {
         Gate::authorize('create-document');
@@ -48,6 +96,32 @@ class SupplierController extends Controller
         }
     }
 
+    /**
+     * @OA\Put(
+     *     path="/api/suppliers/{id}",
+     *     summary="Update a supplier",
+     *     operationId="updateSupplier",
+     *     tags={"Suppliers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
+     *     @OA\RequestBody(
+     *         @OA\MediaType(
+     *             mediaType="application/json",
+     *             @OA\Schema(
+     *                 @OA\Property(property="name", type="string", maxLength=255),
+     *                 @OA\Property(property="ice", type="string", maxLength=50, nullable=true),
+     *                 @OA\Property(property="email", type="string", format="email", maxLength=255, nullable=true),
+     *                 @OA\Property(property="phone", type="string", maxLength=50, nullable=true),
+     *                 @OA\Property(property="address", type="string", maxLength=500, nullable=true)
+     *             )
+     *         )
+     *     ),
+     *
+     *     @OA\Response(response="200", description="Supplier updated successfully")
+     * )
+     */
     public function update(Request $request, int $id): JsonResponse
     {
         Gate::authorize('edit-document');
@@ -69,6 +143,19 @@ class SupplierController extends Controller
         }
     }
 
+    /**
+     * @OA\Delete(
+     *     path="/api/suppliers/{id}",
+     *     summary="Delete a supplier",
+     *     operationId="deleteSupplier",
+     *     tags={"Suppliers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *
+     *     @OA\Response(response="200", description="Supplier deleted successfully")
+     * )
+     */
     public function destroy(int $id): JsonResponse
     {
         Gate::authorize('delete-document');

@@ -18,6 +18,12 @@
                 <button class="pb-3 text-sm font-bold transition-colors flex items-center gap-2 text-[#062121] border-b-2 border-[#C5F82A]">
                   <i :class="docIcon"></i>
                   {{ docLabel }} {{ document.number || 'Brouillon' }}
+                  <span
+                    v-if="isDocumentLocked"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700"
+                  >
+                    <i class="fas fa-lock text-xs"></i>
+                  </span>
                 </button>
                 <div class="relative">
                   <button
@@ -52,6 +58,15 @@
                 <h3 class="text-sm font-bold text-[#062121] mb-3 flex items-center gap-2">
                   <i class="fas fa-info-circle text-gray-400"></i> Informations
                 </h3>
+                <div v-if="isDocumentLocked" class="mb-3 p-3 rounded-lg bg-red-50 border border-red-200">
+                  <div class="flex items-start gap-2">
+                    <i class="fas fa-lock text-red-500 mt-0.5 text-xs"></i>
+                    <div class="text-xs">
+                      <span class="font-semibold text-red-700">Document verrouillé (Article 145)</span>
+                      <p class="text-red-600 mt-0.5">{{ document.lock_reason || 'Ce document ne peut plus être modifié.' }}</p>
+                    </div>
+                  </div>
+                </div>
                 <div class="text-sm text-gray-700 space-y-1.5">
                   <div class="flex gap-3">
                     <span class="text-gray-500 font-medium w-28">Statut</span>
@@ -138,6 +153,66 @@
                 </div>
               </div>
 
+              <div v-if="documentLineage && (documentLineage.ancestor_chain.length > 0 || documentLineage.descendant_chain.length > 0)">
+                <h3 class="text-sm font-bold text-[#062121] mb-3 flex items-center gap-2">
+                  <i class="fas fa-sitemap text-gray-400"></i> Chaîne de documents
+                </h3>
+                <div class="space-y-2">
+                  <div v-if="documentLineage.ancestor_chain.length > 0" class="text-xs">
+                    <span class="font-semibold text-gray-600">Origine:</span>
+                    <span class="ml-2 text-gray-500">{{ documentLineage.ancestor_chain[0]?.number }}</span>
+                    <span class="text-gray-400">({{ getDocTypeLabel(documentLineage.ancestor_chain[0]?.documentable_type) }})</span>
+                  </div>
+                  <div class="flex items-center gap-1 text-xs">
+                    <template v-for="(doc, idx) in documentLineage.ancestor_chain" :key="'anc-' + doc.id">
+                      <span v-if="idx > 0" class="text-gray-300">→</span>
+                      <button
+                        @click="goToDocument(doc.id)"
+                        class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer transition-colors"
+                        :class="{ 'font-bold': doc.id === document.id }"
+                        :style="{ color: doc.id === document.id ? '#062121' : '#64748b' }"
+                      >
+                        {{ getDocTypeLabel(doc.documentable_type) }}
+                      </button>
+                    </template>
+                    <span v-if="documentLineage.descendant_chain.length > 0" class="text-gray-300">→</span>
+                    <template v-for="(doc, idx) in documentLineage.descendant_chain" :key="'des-' + doc.id">
+                      <button
+                        @click="goToDocument(doc.id)"
+                        class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer transition-colors"
+                        :style="{ color: '#64748b' }"
+                      >
+                        {{ getDocTypeLabel(doc.documentable_type) }}
+                      </button>
+                      <span v-if="idx < documentLineage.descendant_chain.length - 1" class="text-gray-300">→</span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="nextPipelineStages.length > 0">
+                <h3 class="text-sm font-bold text-[#062121] mb-3 flex items-center gap-2">
+                  <i class="fas fa-project-diagram text-gray-400"></i> Actions de pipeline
+                </h3>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    v-for="stage in nextPipelineStages"
+                    :key="stage.action"
+                    @click="executePipelineAction(stage.action)"
+                    :disabled="isBusy"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
+                    :style="{
+                      backgroundColor: stage.color + '15',
+                      color: stage.color,
+                      border: `1px solid ${stage.color}30`
+                    }"
+                  >
+                    <i :class="stage.icon"></i>
+                    {{ stage.label }}
+                  </button>
+                </div>
+              </div>
+
               <div v-if="document.payment_condition || document.payment_mode || document.late_fee_interest">
                 <h3 class="text-sm font-bold text-[#062121] mb-3 flex items-center gap-2">
                   <i class="fas fa-handshake text-gray-400"></i> Conditions
@@ -176,7 +251,7 @@
                     </thead>
                     <tbody class="divide-y divide-gray-100">
                       <tr v-for="(item, i) in document.items" :key="i" class="hover:bg-gray-50/50 transition-colors">
-                        <td class="px-4 py-2.5 text-gray-700">{{ item.product_type || '—' }}</td>
+                        <td class="px-4 py-2.5 text-gray-700">{{ getProductTypeLabel(item.product_type) }}</td>
                         <td class="px-4 py-2.5 text-gray-700">{{ item.description }}</td>
                         <td class="px-4 py-2.5 text-right text-gray-700">{{ fmt(item.unit_price) }}</td>
                         <td class="px-4 py-2.5 text-center text-gray-600">{{ item.quantity }}</td>
@@ -264,13 +339,35 @@ const documentType = ref("");
 const ancestorChain = ref([]);
 const descendantChain = ref([]);
 const availableActions = ref({});
+const documentLineage = ref(null);
 const isLoading = ref(true);
 const isBusy = ref(false);
 const showDropdown = ref(false);
+const nextPipelineStages = ref([]);
+const isDocumentLocked = ref(false);
+const productCategories = ref([]);
+
+const getProductTypeLabel = (type) => {
+  if (!type) return '—';
+
+  // First check if it's a category ID
+  const category = productCategories.value.find(cat => String(cat.id) === String(type));
+  if (category) return category.name;
+
+  // Fallback to static mappings for legacy values
+  const staticLabels = {
+    'product': 'Produit',
+    'service': 'Service',
+    '1': 'Produit',
+    '2': 'Service',
+  };
+  return staticLabels[type] || type;
+};
 
 const docLabels = {
   Quote: "Devis",
   Invoice: "Facture",
+  Proforma: "Facture Proforma",
   DeliveryNote: "Bon de livraison",
   PurchaseOrder: "Bon de commande",
   Deposit: "Acompte",
@@ -280,6 +377,7 @@ const docLabels = {
 const docIcons = {
   Quote: "fas fa-file-signature",
   Invoice: "fas fa-file-invoice",
+  Proforma: "fas fa-file-contract",
   DeliveryNote: "fas fa-truck",
   PurchaseOrder: "fas fa-shopping-cart",
   Deposit: "fas fa-hand-holding-usd",
@@ -386,7 +484,7 @@ const fmtDate = (d) => {
 
 const getDocTypeLabel = (type) => docLabels[type] || type;
 const getDocTypeColor = (type) => {
-  const colors = { Quote: "#8b5cf6", Invoice: "#22c55e", DeliveryNote: "#ea580c", PurchaseOrder: "#2563eb", Deposit: "#7c3aed", CreditNote: "#f97316" };
+  const colors = { Quote: "#8b5cf6", Invoice: "#22c55e", Proforma: "#06b6d4", DeliveryNote: "#ea580c", PurchaseOrder: "#2563eb", Deposit: "#7c3aed", CreditNote: "#f97316" };
   return colors[type] || "#94a3b8";
 };
 const getStatusText = (status) => statusLabels[status] || status;
@@ -405,6 +503,10 @@ const fetchPreview = async () => {
     ancestorChain.value = data.ancestor_chain || [];
     descendantChain.value = data.descendant_chain || [];
     availableActions.value = data.available_actions || {};
+    isDocumentLocked.value = data.document?.is_locked || false;
+    nextPipelineStages.value = data.next_pipeline_stages || [];
+    documentLineage.value = data.lineage || null;
+    productCategories.value = data.product_categories || [];
   } catch (err) {
     error("Erreur", err.response?.data?.message || "Impossible de charger le document.");
   } finally {
@@ -479,7 +581,9 @@ const convertToPurchaseOrder = async () => {
 
 const createDeposit = () => {
   closeDropdown();
-  router.push({ name: 'deposit.create', query: { quote_id: document.value.id } });
+  // Use documentable ID for Quote, fallback to document ID
+  const quoteId = document.value.documentable?.id || document.value.id;
+  router.push({ name: 'deposit.create', query: { quote_id: quoteId } });
 };
 
 const createDeliveryNoteAction = async () => {
@@ -534,7 +638,7 @@ const doAction = async (action) => {
     const id = document.value.id;
 
     const endpoints = {
-      Quote: { finalize: `/api/quotes/${id}/finalize`, send: `/api/quotes/${id}/send`, sign: `/api/quotes/${id}/sign`, 'convert-to-invoice': `/api/quotes/${id}/convert-to-invoice`, 'convert-to-purchase-order': `/api/quotes/${id}/convert-to-purchase-order`, 'create-delivery-note': `/api/quotes/${id}/create-delivery-note`, duplicate: `/api/quotes/${id}/duplicate` },
+      Quote: { finalize: `/api/quotes/${id}/finalize`, send: `/api/quotes/${id}/send`, sign: `/api/quotes/${id}/sign`, 'convert-to-invoice': `/api/quotes/${id}/convert-to-invoice`, 'convert-to-purchase-order': `/api/quotes/${id}/convert-to-purchase-order`, 'create-delivery-note': `/api/quotes/${id}/create-delivery-note`, 'create-solde-invoice': `/api/quotes/${id}/create-solde-invoice`, duplicate: `/api/quotes/${id}/duplicate` },
       Invoice: { finalize: `/api/invoices/${id}/finalize`, send: `/api/invoices/${id}/send`, 'mark-paid': `/api/invoices/${id}/mark-paid`, cancel: `/api/invoices/${id}/cancel`, duplicate: `/api/invoices/${id}/duplicate` },
       DeliveryNote: { finalize: `/api/delivery-notes/${id}/finalize`, send: `/api/delivery-notes/${id}/send`, deliver: `/api/delivery-notes/${id}/deliver`, 'convert-to-invoice': `/api/delivery-notes/${id}/convert-to-invoice`, duplicate: `/api/delivery-notes/${id}/duplicate` },
       PurchaseOrder: { finalize: `/api/purchase-orders/${id}/finalize`, send: `/api/purchase-orders/${id}/send`, confirm: `/api/purchase-orders/${id}/confirm`, duplicate: `/api/purchase-orders/${id}/duplicate` },
@@ -545,7 +649,7 @@ const doAction = async (action) => {
     if (!url) { error("Erreur", "Action non supportée."); return; }
 
     await axios.put(url);
-    const messages = { finalize: 'Document finalisé.', send: 'Document envoyé.', sign: 'Devis signé.', 'mark-paid': 'Facture marquée payée.', deliver: 'Bon de livraison livré.', confirm: 'Commande confirmée.', 'convert-to-invoice': 'Converti en facture.', 'convert-to-purchase-order': 'Converti en commande.', 'create-delivery-note': 'Bon de livraison créé.', cancel: 'Document annulé.', apply: 'Avoir appliqué.', duplicate: 'Document dupliqué.' };
+    const messages = { finalize: 'Document finalisé.', send: 'Document envoyé.', sign: 'Devis signé.', 'mark-paid': 'Facture marquée payée.', deliver: 'Bon de livraison livré.', confirm: 'Commande confirmée.', 'convert-to-invoice': 'Converti en facture.', 'convert-to-purchase-order': 'Converti en commande.', 'create-delivery-note': 'Bon de livraison créé.', 'create-solde-invoice': 'Facture de solde créée.', cancel: 'Document annulé.', apply: 'Avoir appliqué.', duplicate: 'Document dupliqué.' };
     success("Succès", messages[action] || 'Action effectuée.');
     await refresh();
   } catch (err) {
@@ -553,6 +657,12 @@ const doAction = async (action) => {
   } finally {
     isBusy.value = false;
   }
+};
+
+const executePipelineAction = async (action) => {
+  const result = await confirmModal("Action de pipeline", "Confirmer cette action ?");
+  if (!result.isConfirmed) return;
+  await doAction(action);
 };
 
 onMounted(() => fetchPreview());

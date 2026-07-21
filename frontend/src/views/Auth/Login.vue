@@ -46,9 +46,15 @@ const submit = async () => {
 
   try {
     await axios.get("/sanctum/csrf-cookie");
-    const response = await axios.post("/login", form);
+    const response = await axios.post("/api/login", form);
     authStore.setAuthData(response.data);
 
+    // Wait for session cookie to be properly processed by browser before navigation
+    // This prevents race condition where first auth request fails with 401
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Login response already contains complete auth data including email_verified
+    // No need to fetch auth status again - it can cause race conditions and overwrite correct data
     if (!authStore.emailVerified) {
       router.push({ name: "verify-email" });
     } else if (!authStore.hasCompany) {
@@ -64,8 +70,16 @@ const submit = async () => {
           errors[key] = validationErrors[key][0];
         }
       });
+    } else if (error.response && error.response.status === 401) {
+      // Invalid credentials
+      errors.email = "Les identifiants sont incorrects.";
+      errors.password = "Vérifiez votre email et mot de passe.";
+    } else if (error.code === 'ECONNABORTED' || error.message === 'Network Error') {
+      // Network error or timeout
+      errors.server = "Impossible de se connecter au serveur. Vérifiez votre connexion.";
     } else {
       console.error("Une erreur est survenue lors de la connexion:", error);
+      errors.server = "Une erreur est survenue. Veuillez réessayer.";
     }
   } finally {
     processing.value = false;
@@ -117,7 +131,6 @@ const submit = async () => {
               v-model="form.email"
               placeholder="exemple@mail.com"
               required
-              autofocus
               autocomplete="username"
             />
             <InputError class="mt-2" :message="errors.email" />

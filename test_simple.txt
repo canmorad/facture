@@ -1,0 +1,5 @@
+TEST FACTURE
+TechZone Maroc
+Facture FA-2026-0894
+Date: 15/07/2026
+Total: 28860.00 DH

@@ -139,9 +139,17 @@ const submitClient = async () => {
     console.log(error.response?.data?.message)
     if (error.response?.status === 422) {
       const e = error.response.data.errors;
-      Object.keys(e).forEach((k) => {
-        if (errors[k] !== undefined) errors[k] = e[k][0];
-      });
+      // Handle Laravel validation errors format
+      if (e && typeof e === 'object') {
+        Object.keys(e).forEach((k) => {
+          if (errors[k] !== undefined) errors[k] = e[k][0];
+        });
+      } else if (error.response.data?.message) {
+        // Handle simple message format (from our custom exceptions)
+        errors.server = error.response.data.message;
+      } else {
+        errors.server = "Une erreur est survenue lors de l'enregistrement.";
+      }
     } else {
       errors.server = "Une erreur est survenue lors de l'enregistrement.";
     }

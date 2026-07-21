@@ -18,6 +18,7 @@ class NumberingSerie extends Model
         'start_from_deposit_credit_note',
         'start_from_delivery_note',
         'start_from_purchase_order',
+        'start_from_proforma',
         'current_invoice',
         'current_quote',
         'current_credit_note',
@@ -25,8 +26,11 @@ class NumberingSerie extends Model
         'current_deposit_credit_note',
         'current_delivery_note',
         'current_purchase_order',
+        'current_proforma',
         'start_from_balance_invoice',
         'current_balance_invoice',
+        'start_from_bank_remittance',
+        'current_bank_remittance',
     ];
 
     protected $casts = [

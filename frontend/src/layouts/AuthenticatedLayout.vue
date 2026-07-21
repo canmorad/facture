@@ -33,6 +33,10 @@ const goToCreateCompany = () => {
 };
 
 onMounted(async () => {
+  // Wait for auth to be fully initialized before reloading companies
+  // This ensures we don't make API calls before authentication state is confirmed
+  await authStore.fetchAuthStatus().catch(() => {})
+
   if (authStore.isAuthenticated && authStore.companies.length === 0) {
     await authStore.reloadCompanies();
   }
@@ -109,6 +113,17 @@ onMounted(async () => {
             </router-link>
             <router-link
               v-if="can('view-documents')"
+              to="/proformas"
+              class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
+              active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
+            >
+              <i
+                class="fa-solid fa-file-contract text-[18px] w-[22px] text-center"
+              ></i>
+              Factures Proforma
+            </router-link>
+            <router-link
+              v-if="can('view-documents')"
               to="/purchase-orders"
               class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
               active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
@@ -137,6 +152,17 @@ onMounted(async () => {
                 class="fa-solid fa-file-invoice-dollar text-[18px] w-[22px] text-center"
               ></i>
               Factures d'acompte
+            </router-link>
+            <router-link
+              v-if="can('view-documents')"
+              to="/balance-invoices"
+              class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
+              active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
+            >
+              <i
+                class="fa-solid fa-file-invoice text-[18px] w-[22px] text-center"
+              ></i>
+              Factures de solde
             </router-link>
             <router-link
               v-if="can('manage-recurring-invoices')"
@@ -175,6 +201,24 @@ onMounted(async () => {
             >
               <i class="fa-solid fa-truck-field text-[18px] w-[22px] text-center"></i>
               Fournisseurs
+            </router-link>
+            <router-link
+              v-if="can('view-documents')"
+              to="/cash-registers"
+              class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
+              active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
+            >
+              <i class="fa-solid fa-cash-register text-[18px] w-[22px] text-center"></i>
+              Gestion des Caisses
+            </router-link>
+            <router-link
+              v-if="can('view-documents')"
+              to="/bank-remittances"
+              class="flex items-center gap-[12px] px-[15px] py-[12px] rounded-[12px] text-[17px] font-semibold text-[#64748B] transition-all duration-300 hover:bg-[#F8FAFC] hover:text-[#062121]"
+              active-class="!font-bold !bg-[#C5F82A] !text-[#062121] !shadow-[0_4px_12px_rgba(197,248,42,0.2)]"
+            >
+              <i class="fa-solid fa-money-check-alt text-[18px] w-[22px] text-center"></i>
+              Remises Bancaires
             </router-link>
             <router-link
               v-if="can('view-products')"

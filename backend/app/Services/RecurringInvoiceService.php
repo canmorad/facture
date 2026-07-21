@@ -64,14 +64,14 @@ class RecurringInvoiceService
         DB::beginTransaction();
 
         try {
-            $invoiceNumber = $this->numberingService->generateNumber('invoice', $templateDocument->company_id);
-
+            // RÈGLE COMPTABLE STRICTE : Pas de numéro pour les brouillons
+            // Créer d'abord en DRAFT sans numéro, puis finaliser
             $document = $this->documentService->create([
                 'company_id' => $templateDocument->company_id,
                 'customer_id' => $templateDocument->customer_id,
                 'bank_account_id' => $templateDocument->bank_account_id,
                 'parent_document_id' => null,
-                'number' => $invoiceNumber,
+                'number' => null,  // NULL pour les brouillons - jamais de numéro officiel
                 'total_ht' => $templateDocument->total_ht,
                 'total_tva' => $templateDocument->total_tva,
                 'total_ttc' => $templateDocument->total_ttc,
@@ -91,10 +91,9 @@ class RecurringInvoiceService
             ]);
 
             $invoice = Invoice::create([
-                'status' => 'FINALIZED',
+                'status' => 'DRAFT',
                 'due_date' => Carbon::now()->addDays(30),
                 'type' => 'STANDARD',
-                'finalized_at' => now(),
             ]);
 
             $document->documentable_id = $invoice->id;
@@ -116,6 +115,14 @@ class RecurringInvoiceService
                     ]
                 ]);
             }
+
+            // Finaliser la facture récurrente : générer le numéro et passer au statut FINALIZED
+            $invoiceNumber = $this->numberingService->generateNumber('invoice', $templateDocument->company_id);
+            $this->documentService->updateNumber($document, $invoiceNumber);
+
+            $invoice->transitionTo('FINALIZED');
+            $invoice->finalized_at = now();
+            $invoice->save();
 
             $nextRunDate = $this->calculateNextRunDate($recurring);
 

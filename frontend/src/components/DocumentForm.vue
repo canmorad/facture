@@ -24,6 +24,18 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isLocked: {
+    type: Boolean,
+    default: false,
+  },
+  lockReason: {
+    type: String,
+    default: null,
+  },
+  availableActions: {
+    type: Object,
+    default: () => ({}),
+  },
 });
 
 const router = useRouter();
@@ -32,12 +44,15 @@ const router = useRouter();
 const isLoadingProducts = ref(false);
 const isLoadingCompany = ref(false);
 const isLoadingClients = ref(false);
+const isLoadingCategories = ref(false);
 const isSavingDoc = ref(false);
 
 const products = ref([]);
+const productCategories = ref([]);
 const companySettings = ref(null);
 const clients = ref([]);
 const selectedClient = ref(null);
+const selectedCategory = ref(null);
 
 // Formulaire principal
 const documentForm = reactive({
@@ -74,6 +89,11 @@ const totals = computed(() => {
   };
 });
 
+const filteredProducts = computed(() => {
+  if (!selectedCategory.value) return products.value;
+  return products.value.filter(p => p.category_id === selectedCategory.value);
+});
+
 const docTitle = computed(() => {
   if (props.isEdit) {
     return props.type === "invoice" ? "Modifier Facture" : "Modifier Devis";
@@ -86,6 +106,13 @@ const docBadgeClass = computed(() =>
     ? "bg-emerald-100 text-emerald-700"
     : "bg-sky-100 text-sky-700",
 );
+
+const isDisabled = computed(() => props.isLocked || (props.isEdit && !props.availableActions.can_edit));
+
+const lockMessage = computed(() => {
+  if (!props.isLocked) return null;
+  return props.lockReason || 'Document verrouillé (Article 145)';
+});
 
 const makeItem = () => ({
   product_id: null,
@@ -117,12 +144,27 @@ const fetchProducts = async () => {
   if (products.value.length > 0) return;
   isLoadingProducts.value = true;
   try {
-    const { data } = await axios.get("/api/products");
+    const { data } = await axios.get("/api/products", {
+      params: { with: 'category' }
+    });
     products.value = data;
   } catch {
     // Silencieux
   } finally {
     isLoadingProducts.value = false;
+  }
+};
+
+const fetchProductCategories = async () => {
+  if (productCategories.value.length > 0) return;
+  isLoadingCategories.value = true;
+  try {
+    const { data } = await axios.get("/api/product-categories");
+    productCategories.value = data;
+  } catch {
+    // Silencieux
+  } finally {
+    isLoadingCategories.value = false;
   }
 };
 
@@ -234,7 +276,15 @@ const saveDocument = async () => {
   } catch (error) {
     if (error.response?.status === 422) {
       const e = error.response.data.errors;
-      docErrors.server = Object.values(e).flat().join(" — ");
+      // Handle Laravel validation errors format
+      if (e && typeof e === 'object') {
+        docErrors.server = Object.values(e).flat().join(" — ");
+      } else if (error.response.data?.message) {
+        // Handle simple message format (from our custom exceptions)
+        docErrors.server = error.response.data.message;
+      } else {
+        docErrors.server = "Erreur de validation.";
+      }
     } else if (error.response?.status) {
       docErrors.server = error.response.data.message || "Erreur serveur.";
     } else {
@@ -247,7 +297,7 @@ const saveDocument = async () => {
 
 // ---------- INITIALISATION ----------
 onMounted(async () => {
-  await Promise.all([fetchProducts(), fetchCompanySettings()]);
+  await Promise.all([fetchProducts(), fetchProductCategories(), fetchCompanySettings()]);
 
   if (props.isEdit && props.editData) {
     loadEditData();
@@ -305,6 +355,13 @@ watch(
           </span>
           <span class="text-sm font-semibold text-gray-700">|</span>
           <h2 class="text-base font-bold text-[#062121]">{{ docTitle }}</h2>
+          <span
+            v-if="isLocked"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700"
+          >
+            <i class="fas fa-lock text-xs"></i>
+            Verrouillé
+          </span>
         </div>
         <div class="w-8"></div>
         <!-- placeholder for symmetry -->
@@ -336,6 +393,19 @@ watch(
           </div>
 
           <InputError :message="docErrors.server" class="mb-4" />
+
+          <div
+            v-if="isLocked"
+            class="mb-4 p-4 rounded-xl bg-red-50 border border-red-200"
+          >
+            <div class="flex items-start gap-3">
+              <i class="fas fa-lock text-red-500 mt-0.5"></i>
+              <div class="flex-1">
+                <h4 class="text-sm font-bold text-red-700">Document verrouillé</h4>
+                <p class="text-xs text-red-600 mt-1">{{ lockMessage }}</p>
+              </div>
+            </div>
+          </div>
 
           <!-- Info société & client -->
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -559,20 +629,36 @@ watch(
                     :class="index % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'"
                   >
                     <td class="px-4 py-3">
-                      <select
-                        v-model="item.product_id"
-                        @change="onProductSelect(index)"
-                        class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white focus:border-[#C5F82A] focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-[#C5F82A]/20"
-                      >
-                        <option :value="null">— Saisie libre —</option>
-                        <option
-                          v-for="product in products"
-                          :key="product.id"
-                          :value="product.id"
+                      <div class="space-y-1">
+                        <select
+                          v-model="selectedCategory"
+                          @change="selectedCategory = $event.target.value || null"
+                          class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 bg-white focus:border-[#C5F82A] focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-[#C5F82A]/20"
                         >
-                          {{ product.name }}
-                        </option>
-                      </select>
+                          <option :value="null">Toutes catégories</option>
+                          <option
+                            v-for="cat in productCategories"
+                            :key="cat.id"
+                            :value="cat.id"
+                          >
+                            {{ cat.name }}
+                          </option>
+                        </select>
+                        <select
+                          v-model="item.product_id"
+                          @change="onProductSelect(index)"
+                          class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white focus:border-[#C5F82A] focus:bg-white focus:outline-none focus:ring-[3px] focus:ring-[#C5F82A]/20"
+                        >
+                          <option :value="null">— Saisie libre —</option>
+                          <option
+                            v-for="product in filteredProducts"
+                            :key="product.id"
+                            :value="product.id"
+                          >
+                            {{ product.name }}
+                          </option>
+                        </select>
+                      </div>
                     </td>
                     <td class="px-4 py-3">
                       <input
@@ -691,7 +777,8 @@ watch(
           :disabled="
             isSavingDoc ||
             documentForm.items.length === 0 ||
-            !documentForm.client_id
+            !documentForm.client_id ||
+            isDisabled
           "
           class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           style="background-color: #062121"

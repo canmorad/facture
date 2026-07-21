@@ -4,59 +4,60 @@ namespace App\Services;
 
 class DocumentCalculationService
 {
-    public function calculate(array $items, ?string $globalDiscountType, ?float $globalDiscountValue): array
+    public function calculate(array $items, ?string $discountType = null, float $discountValue = 0): array
     {
-        $totalHt = 0.0;
-        $totalWeightedTva = 0.0;
         $processedItems = [];
+        $totalHt = 0;
+        $totalTva = 0;
 
         foreach ($items as $item) {
-            $subtotal = $item['quantity'] * $item['unit_price'];
-            $discountAmount = 0.0;
+            $quantity = $item['quantity'] ?? 0;
+            $unitPrice = $item['unit_price'] ?? 0;
+            $taxRate = $item['tax_rate'] ?? 20;
 
-            if (!empty($item['discount_type']) && $item['discount_value'] > 0) {
+            $lineHt = $quantity * $unitPrice;
+            $lineTva = $lineHt * ($taxRate / 100);
+            $lineTtc = $lineHt + $lineTva;
+
+            $itemDiscountAmount = 0;
+            if (isset($item['discount_type']) && isset($item['discount_value'])) {
                 if ($item['discount_type'] === 'percentage') {
-                    $discountAmount = $subtotal * ($item['discount_value'] / 100);
+                    $itemDiscountAmount = $lineHt * ($item['discount_value'] / 100);
                 } else {
-                    $discountAmount = (float) $item['discount_value'];
+                    $itemDiscountAmount = $item['discount_value'];
                 }
             }
 
-            $lineHt = $subtotal - $discountAmount;
-            $totalHt += $lineHt;
-            $totalWeightedTva += $lineHt * ($item['tax_rate'] / 100);
-
             $processedItems[] = [
-                'subtotal' => $subtotal,
-                'discount_amount' => $discountAmount,
                 'line_ht' => $lineHt,
-                'tax_rate' => $item['tax_rate'],
+                'line_tva' => $lineTva,
+                'line_ttc' => $lineTtc,
+                'tax_rate' => $taxRate,
+                'discount_amount' => $itemDiscountAmount,
             ];
+
+            $totalHt += $lineHt;
+            $totalTva += $lineTva;
         }
 
-        $globalDiscountAmount = 0.0;
-        if ($globalDiscountType && $globalDiscountValue > 0) {
-            if ($globalDiscountType === 'percentage') {
-                $globalDiscountAmount = $totalHt * ($globalDiscountValue / 100);
+        $totalTtc = $totalHt + $totalTva;
+
+        $globalDiscountAmount = 0;
+        if ($discountType && $discountValue > 0) {
+            if ($discountType === 'percentage') {
+                $globalDiscountAmount = $totalHt * ($discountValue / 100);
             } else {
-                $globalDiscountAmount = (float) $globalDiscountValue;
+                $globalDiscountAmount = $discountValue;
             }
         }
 
         $totalHtAfterDiscount = $totalHt - $globalDiscountAmount;
-        $totalTva = $totalWeightedTva;
-
-        if ($globalDiscountAmount > 0 && $totalHt > 0) {
-            $totalTva = $totalWeightedTva * ($totalHtAfterDiscount / $totalHt);
-        }
-
-        $totalTtc = $totalHtAfterDiscount + $totalTva;
 
         return [
             'total_ht' => $totalHt,
             'total_tva' => $totalTva,
             'total_ttc' => $totalTtc,
-            'total_ht_after_discount' => $totalHtAfterDiscount,
+            'total_ht_after_discount' => max(0, $totalHtAfterDiscount),
             'global_discount_amount' => $globalDiscountAmount,
             'processed_items' => $processedItems,
         ];

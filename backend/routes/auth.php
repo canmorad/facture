@@ -33,7 +33,7 @@ Route::get('/verify-email/{id}/{hash}', VerifyEmailController::class)
 Route::post('/email/verification-notification', function (Request $request) {
     $request->user()->sendEmailVerificationNotification();
     return response()->json(['message' => 'Verification link sent']);
-})->middleware(['auth:sanctum', 'throttle:6,1']);
+})->middleware(['auth:web', 'throttle:6,1']);
 
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
     ->middleware('auth')

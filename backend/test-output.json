@@ -1,0 +1,19 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Facturex API",
+        "description": "API documentation for Facturex application",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/api/health": {
+            "description": "Health check endpoint",
+            "servers": [
+                {
+                    "url": "http://localhost:8001",
+                    "description": "API Server"
+                }
+            ]
+        }
+    }
+}

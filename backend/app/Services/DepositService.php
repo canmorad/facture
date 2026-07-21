@@ -15,8 +15,59 @@ class DepositService
         protected DocumentCalculationService $calculationService,
         protected NumberingService $numberingService,
         protected DocumentService $documentService,
-        protected DocumentItemService $documentItemService
+        protected DocumentItemService $documentItemService,
+        protected FiscalComplianceService $fiscalService
     ) {}
+
+    public function getPaginated(array $filters = [], int $perPage = 10)
+    {
+        $companyId = $this->getCompanyId();
+        $validStatuses = ['DRAFT', 'FINALIZED', 'PAID', 'CANCELLED'];
+
+        $filters = array_merge([
+            'status' => null,
+            'search' => null,
+            'date_from' => null,
+            'date_to' => null,
+            'customer_id' => null,
+        ], $filters);
+
+        $query = Document::where('company_id', $companyId)
+            ->where('documentable_type', Deposit::class)
+            ->with(['customer.customerable', 'items.product', 'items.product.category', 'documentable', 'parent']);
+
+        if ($filters['status'] && in_array($filters['status'], $validStatuses)) {
+            $query->whereHas('documentable', function ($q) use ($filters) {
+                $q->where('status', $filters['status']);
+            });
+        }
+
+        if ($filters['customer_id']) {
+            $query->where('customer_id', $filters['customer_id']);
+        }
+
+        if ($filters['date_from']) {
+            $query->where('created_at', '>=', $filters['date_from']);
+        }
+
+        if ($filters['date_to']) {
+            $query->where('created_at', '<=', $filters['date_to']);
+        }
+
+        if ($filters['search']) {
+            $search = $filters['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('number', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function ($cq) use ($search) {
+                        $cq->where('name', 'like', "%{$search}%");
+                    })
+                    ->orWhere('total_ht', 'like', "%{$search}%")
+                    ->orWhere('total_ttc', 'like', "%{$search}%");
+            });
+        }
+
+        return $query->orderBy('created_at', 'desc')->paginate($perPage);
+    }
 
     public function getAll(?string $status = null)
     {
@@ -40,9 +91,10 @@ class DepositService
         $company = $this->getCompany();
 
         $quotes = $company->quotes()
-            ->with('document')
+            ->with('document.customer.customerable')
             ->get();
 
+        $customers = $company->customers()->with('customerable')->get();
         $taxRates = $company->taxRates()->where('is_actif', true)->get();
         $bankAccounts = $company->bankAccounts()->where('is_active', true)->get();
 
@@ -61,6 +113,7 @@ class DepositService
 
         return [
             'quotes' => $quotes,
+            'customers' => $customers,
             'tax_rates' => $taxRates,
             'bank_accounts' => $bankAccounts,
             'payment_conditions' => $paymentConditions,
@@ -104,39 +157,72 @@ class DepositService
     {
         $companyId = $this->getCompanyId();
 
-        $quote = Quote::with('document')->findOrFail($validated['quote_id']);
-        if ($quote->document->company_id !== $companyId) {
-            throw new \RuntimeException('Quote non autorisé.');
-        }
+        // Determine if we're creating from a quote or standalone
+        $quoteId = $validated['quote_id'] ?? null;
+        $customerId = $validated['customer_id'] ?? null;
 
-        $balance = $this->getRemainingBalance($validated['quote_id']);
+        if ($quoteId) {
+            // Creation from quote - validate and get quote data
+            $quote = Quote::with('document')->findOrFail($quoteId);
+            if ($quote->document->company_id !== $companyId) {
+                throw new \RuntimeException('Quote non autorisé.');
+            }
+
+            $customerId = $quote->document->customer_id;
+            $parentDocumentId = $quote->document->id;
+
+            $balance = $this->getRemainingBalance($quoteId);
+        } else {
+            // Standalone creation - customer_id is required
+            if (!$customerId) {
+                throw new \RuntimeException('Customer ID est requis pour créer un acompte sans devis.');
+            }
+
+            $parentDocumentId = null;
+            $balance = null;
+        }
 
         $inputType = $validated['input_type'];
         $inputValue = $validated['input_value'];
         $taxRate = $validated['tax_rate'];
 
-        if ($inputType === 'percentage') {
-            $depositTtc = $balance['quote_total_ttc'] * ($inputValue / 100);
-        } else {
-            $depositTtc = $inputValue;
-        }
+        // Calculate deposit amount
+        if ($quoteId) {
+            // Linked to quote - validate against remaining balance
+            if ($inputType === 'percentage') {
+                $depositTtc = $balance['quote_total_ttc'] * ($inputValue / 100);
+            } else {
+                $depositTtc = $inputValue;
+            }
 
-        if ($depositTtc > $balance['remaining_balance']) {
-            throw new DepositLimitExceededException();
+            if ($depositTtc > $balance['remaining_balance']) {
+                throw new DepositLimitExceededException();
+            }
+        } else {
+            // Standalone - use the input value directly
+            if ($inputType === 'percentage') {
+                throw new \RuntimeException('Le pourcentage n\'est pas supporté pour un acompte sans devis.');
+            }
+            $depositTtc = $inputValue;
+
+            if ($depositTtc <= 0) {
+                throw new \RuntimeException('Le montant de l\'acompte doit être supérieur à zéro.');
+            }
         }
 
         $totalHt = $depositTtc / (1 + ($taxRate / 100));
         $totalTva = $depositTtc - $totalHt;
 
-        return DB::transaction(function () use ($validated, $companyId, $totalHt, $totalTva, $depositTtc, $taxRate, $inputType, $inputValue, $quote) {
-            $number = $this->numberingService->generateNumber('deposit_invoice', $companyId);
+        return DB::transaction(function () use ($validated, $companyId, $totalHt, $totalTva, $depositTtc, $taxRate, $inputType, $inputValue, $customerId, $parentDocumentId, $quoteId) {
+            // RÈGLE COMPTABLE STRICTE : Le champ number reste NULL pour les brouillons
+            // Aucun appel au service de numérotation lors de la création
 
             $document = $this->documentService->create([
                 'company_id' => $companyId,
-                'customer_id' => $quote->document->customer_id,
+                'customer_id' => $customerId,
                 'bank_account_id' => $validated['bank_account_id'] ?? null,
-                'parent_document_id' => $quote->document->id,
-                'number' => $number,
+                'parent_document_id' => $parentDocumentId,
+                'number' => null,  // NULL strict pour les brouillons
                 'total_ht' => $totalHt,
                 'total_tva' => $totalTva,
                 'total_ttc' => $depositTtc,
@@ -157,8 +243,8 @@ class DepositService
 
             $deposit = Deposit::create([
                 'company_id' => $companyId,
-                'quote_id' => $validated['quote_id'],
-                'status' => 'PAID',
+                'quote_id' => $quoteId,
+                'status' => 'DRAFT',
                 'input_type' => $inputType,
                 'input_value' => $inputValue,
             ]);
@@ -203,7 +289,7 @@ class DepositService
             $this->documentService->updateNumber($document, $number);
 
             $deposit = $document->documentable;
-            $deposit->status = 'PAID';
+            $deposit->status = 'FINALIZED';
             $deposit->save();
 
             return $document->fresh(['customer', 'items', 'documentable']);

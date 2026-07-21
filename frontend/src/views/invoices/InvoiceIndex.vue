@@ -1,11 +1,12 @@
 <!-- src/views/invoices/InvoiceIndex.vue -->
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import AuthenticatedLayout from "@/layouts/AuthenticatedLayout.vue";
 import { useAuthStore } from "@/stores/auth";
 import axios from "axios";
 import { success, error, confirm } from "@/helpers/notifications";
+import RegisterPaymentForm from "@/components/RegisterPaymentForm.vue";
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -13,16 +14,74 @@ const authStore = useAuthStore();
 const invoices = ref([]);
 const isLoading = ref(false);
 const selectedStatus = ref("all");
+const activeTab = ref("list");
 const openDropdownId = ref(null);
 const dropdownPosition = ref({ top: 0, left: 0 });
+const pagination = ref({
+  current_page: 1,
+  last_page: 1,
+  per_page: 10,
+  total: 0,
+});
+
+// Payment form state
+const selectedInvoiceForPayment = ref(null);
+
+const openPaymentForm = async (invoice) => {
+  closeDropdown();
+  selectedInvoiceForPayment.value = invoice;
+  await nextTick();
+  activeTab.value = "payment";
+};
+
+const closePaymentForm = () => {
+  activeTab.value = "list";
+  selectedInvoiceForPayment.value = null;
+};
+
+const handlePaymentRegistered = async () => {
+  await fetchInvoices();
+  activeTab.value = "list";
+  selectedInvoiceForPayment.value = null;
+};
+
+const handleOpenCashSession = () => {
+  // Store return path to come back after opening session
+  sessionStorage.setItem('returnToPayment', 'true');
+  sessionStorage.setItem('returnToInvoiceId', selectedInvoiceForPayment.value?.id);
+  router.push({ name: 'cash-register.index', query: { openSession: true } });
+};
+
+// Check if we should return to payment form after opening session
+const checkReturnToPayment = () => {
+  if (sessionStorage.getItem('returnToPayment') === 'true') {
+    const invoiceId = sessionStorage.getItem('returnToInvoiceId');
+    sessionStorage.removeItem('returnToPayment');
+    sessionStorage.removeItem('returnToInvoiceId');
+
+    const invoice = invoices.value.find(inv => inv.id == invoiceId);
+    if (invoice) {
+      selectedInvoiceForPayment.value = invoice;
+      activeTab.value = 'payment';
+    }
+  }
+};
 
 const fetchInvoices = async () => {
   isLoading.value = true;
   try {
-    const params = {};
+    const params = {
+      per_page: 10,
+    };
     if (selectedStatus.value !== "all") params.status = selectedStatus.value;
     const { data } = await axios.get("/api/invoices", { params });
-    invoices.value = data;
+    invoices.value = data.data;
+    pagination.value = {
+      current_page: data.current_page,
+      last_page: data.last_page,
+      per_page: data.per_page,
+      total: data.total,
+    };
   } catch (err) {
     error(
       "Erreur",
@@ -39,6 +98,16 @@ const filteredInvoices = computed(() => {
     (inv) => inv.documentable?.status === selectedStatus.value,
   );
 });
+
+const isImmutable = (inv) => {
+  const status = inv.documentable?.status;
+  // Les factures en brouillon sont toujours modifiables et supprimables
+  // (indépendamment de is_locked ou parent_document_id)
+  if (status === 'DRAFT') return false;
+  return inv.is_locked ||
+         inv.parent_document_id ||
+         ['FINALIZED', 'SENT', 'PAID', 'CANCELLED', 'OVERDUE'].includes(status);
+};
 
 const getStatusBadgeClass = (status) => {
   const classes = {
@@ -129,22 +198,6 @@ const sendInvoice = async (invoice) => {
   }
 };
 
-const markInvoicePaid = async (id) => {
-  closeDropdown();
-  const result = await confirm("Marquer payé", "Confirmer le paiement ?");
-  if (!result.isConfirmed) return;
-  try {
-    await axios.put(`/api/invoices/${id}/mark-paid`);
-    success("Payé !", "La facture a été marquée comme payée.");
-    await fetchInvoices();
-  } catch (err) {
-    error(
-      "Erreur",
-      err.response?.data?.message || "Impossible de marquer comme payée.",
-    );
-  }
-};
-
 const cancelInvoice = async (id) => {
   closeDropdown();
   const result = await confirm("Annuler", "Confirmer l'annulation ?");
@@ -158,6 +211,32 @@ const cancelInvoice = async (id) => {
   }
 };
 
+const generateCreditNote = async (inv) => {
+  closeDropdown();
+  const isDepositInvoice = inv.documentable?.type === 'ACOMPTE';
+  const creditNoteType = isDepositInvoice ? 'DEPOSIT' : 'STANDARD';
+
+  const result = await confirm(
+    `Générer un Avoir ${isDepositInvoice ? 'd\'Acompte' : ''}`,
+    `Créer un ${isDepositInvoice ? 'avoir d\'acompte' : 'avoir'} pour la facture ${inv.number || '#'+inv.id} ?`
+  );
+  if (!result.isConfirmed) return;
+
+  try {
+    const { data } = await axios.post(`/api/invoices/${inv.id}/generate-credit-note`, {
+      type: creditNoteType,
+      reason: isDepositInvoice ? 'Avoir d\'acompte' : 'Correction de facture',
+    });
+    success('Créé !', `L\'avoir ${data.number} a été créé.`);
+    await fetchInvoices();
+  } catch (err) {
+    error(
+      'Erreur',
+      err.response?.data?.message || 'Impossible de générer l\'avoir.',
+    );
+  }
+};
+
 const toggleDropdown = (id, event) => {
   if (openDropdownId.value === id) {
     closeDropdown();
@@ -165,15 +244,8 @@ const toggleDropdown = (id, event) => {
   }
   const target = event.currentTarget;
   const rect = target.getBoundingClientRect();
-  const dropdownWidth = 240;
-  const windowWidth = window.innerWidth;
-  let left = rect.left;
-  if (left + dropdownWidth > windowWidth - 10)
-    left = windowWidth - dropdownWidth - 10;
-  if (left < 10) left = 10;
   dropdownPosition.value = {
     top: rect.bottom + window.scrollY + 4,
-    left: left,
   };
   openDropdownId.value = id;
 };
@@ -203,7 +275,10 @@ const changeStatusFilter = (status) => {
   fetchInvoices();
 };
 
-onMounted(() => fetchInvoices());
+onMounted(async () => {
+  await fetchInvoices();
+  checkReturnToPayment();
+});
 </script>
 
 <template>
@@ -213,150 +288,192 @@ onMounted(() => fetchInvoices());
         <div
           class="rounded-2xl border border-gray-200 bg-[#F4F7F7] shadow-sm overflow-hidden"
         >
-          <div class="border-b border-gray-200 px-6 pt-4 pb-3">
+          <!-- Main Navigation Tabs -->
+          <div class="border-b border-gray-200 px-6 pt-4 pb-0">
             <div class="flex items-center justify-between flex-wrap gap-4">
               <div class="flex gap-6">
                 <button
-                  @click="changeStatusFilter('all')"
+                  @click="activeTab = 'list'"
                   :class="[
-                    'pb-3 text-sm font-bold transition-colors flex items-center gap-2',
-                    selectedStatus === 'all'
+                    'pb-4 text-sm font-bold transition-colors flex items-center gap-2',
+                    activeTab === 'list'
                       ? 'text-[#062121] border-b-2 border-[#C5F82A]'
                       : 'text-gray-500 hover:text-gray-700',
                   ]"
                 >
-                  <i class="fas fa-list"></i> Tous
+                  <i class="fas fa-file-invoice"></i>
+                  Liste des factures
                   <span
+                    v-if="invoices.length > 0"
                     class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full"
                     >{{ invoices.length }}</span
                   >
                 </button>
+
                 <button
-                  @click="changeStatusFilter('DRAFT')"
+                  @click="activeTab = 'payment'"
                   :class="[
-                    'pb-3 text-sm font-bold transition-colors flex items-center gap-2',
-                    selectedStatus === 'DRAFT'
+                    'pb-4 text-sm font-bold transition-colors flex items-center gap-2',
+                    activeTab === 'payment'
                       ? 'text-[#062121] border-b-2 border-[#C5F82A]'
                       : 'text-gray-500 hover:text-gray-700',
                   ]"
                 >
-                  <i class="fas fa-pen"></i> Brouillons
-                  <span
-                    class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full"
-                    >{{
-                      invoices.filter(
-                        (inv) => inv.documentable?.status === "DRAFT",
-                      ).length
-                    }}</span
-                  >
-                </button>
-                <button
-                  @click="changeStatusFilter('SENT')"
-                  :class="[
-                    'pb-3 text-sm font-bold transition-colors flex items-center gap-2',
-                    selectedStatus === 'SENT'
-                      ? 'text-[#062121] border-b-2 border-[#C5F82A]'
-                      : 'text-gray-500 hover:text-gray-700',
-                  ]"
-                >
-                  <i class="fas fa-paper-plane"></i> Envoyés
-                  <span
-                    class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full"
-                    >{{
-                      invoices.filter(
-                        (inv) => inv.documentable?.status === "SENT",
-                      ).length
-                    }}</span
-                  >
-                </button>
-                <button
-                  @click="changeStatusFilter('FINALIZED')"
-                  :class="[
-                    'pb-3 text-sm font-bold transition-colors flex items-center gap-2',
-                    selectedStatus === 'FINALIZED'
-                      ? 'text-[#062121] border-b-2 border-[#C5F82A]'
-                      : 'text-gray-500 hover:text-gray-700',
-                  ]"
-                >
-                  <i class="fas fa-check-circle"></i> Finalisés
-                  <span
-                    class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full"
-                    >{{
-                      invoices.filter(
-                        (inv) => inv.documentable?.status === "FINALIZED",
-                      ).length
-                    }}</span
-                  >
-                </button>
-                <button
-                  @click="changeStatusFilter('PAID')"
-                  :class="[
-                    'pb-3 text-sm font-bold transition-colors flex items-center gap-2',
-                    selectedStatus === 'PAID'
-                      ? 'text-[#062121] border-b-2 border-[#C5F82A]'
-                      : 'text-gray-500 hover:text-gray-700',
-                  ]"
-                >
-                  <i class="fas fa-check-double"></i> Payés
-                  <span
-                    class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full"
-                    >{{
-                      invoices.filter(
-                        (inv) => inv.documentable?.status === "PAID",
-                      ).length
-                    }}</span
-                  >
-                </button>
-                <button
-                  @click="changeStatusFilter('OVERDUE')"
-                  :class="[
-                    'pb-3 text-sm font-bold transition-colors flex items-center gap-2',
-                    selectedStatus === 'OVERDUE'
-                      ? 'text-[#062121] border-b-2 border-[#C5F82A]'
-                      : 'text-gray-500 hover:text-gray-700',
-                  ]"
-                >
-                  <i class="fas fa-clock"></i> En retard
-                  <span
-                    class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full"
-                    >{{
-                      invoices.filter(
-                        (inv) => inv.documentable?.status === "OVERDUE",
-                      ).length
-                    }}</span
-                  >
-                </button>
-                <button
-                  @click="changeStatusFilter('CANCELLED')"
-                  :class="[
-                    'pb-3 text-sm font-bold transition-colors flex items-center gap-2',
-                    selectedStatus === 'CANCELLED'
-                      ? 'text-[#062121] border-b-2 border-[#C5F82A]'
-                      : 'text-gray-500 hover:text-gray-700',
-                  ]"
-                >
-                  <i class="fas fa-times-circle"></i> Annulés
-                  <span
-                    class="text-xs bg-gray-300 text-gray-700 px-2 py-0.5 rounded-full"
-                    >{{
-                      invoices.filter(
-                        (inv) => inv.documentable?.status === "CANCELLED",
-                      ).length
-                    }}</span
-                  >
+                  <i class="fas fa-money-bill-wave"></i>
+                  Enregistrer un paiement
                 </button>
               </div>
+
               <button
+                v-if="activeTab === 'list'"
                 @click="createInvoice"
                 class="!p-[10px] !bg-[#0F172A] !text-white border-none rounded-lg font-bold text-xs sm:text-sm justify-center transition-all duration-300 hover:-translate-y-[1px] hover:shadow-[0_8px_15px_rgba(15,23,42,0.15)] inline-flex items-center gap-2"
               >
                 <i class="fas fa-plus"></i> Créer une Facture
               </button>
             </div>
+
+            <!-- Status Filters (only show in list tab) -->
+            <div
+              v-if="activeTab === 'list'"
+              class="flex gap-4 pb-3 mt-2 overflow-x-auto"
+            >
+              <button
+                @click="changeStatusFilter('all')"
+                :class="[
+                  'text-xs font-medium transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
+                  selectedStatus === 'all'
+                    ? 'bg-[#C5F82A]/15 text-[#062121]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
+                ]"
+              >
+                <i class="fas fa-list"></i> Tous
+                <span class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{{
+                  invoices.length
+                }}</span>
+              </button>
+              <button
+                @click="changeStatusFilter('DRAFT')"
+                :class="[
+                  'text-xs font-medium transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
+                  selectedStatus === 'DRAFT'
+                    ? 'bg-[#C5F82A]/15 text-[#062121]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
+                ]"
+              >
+                <i class="fas fa-pen"></i> Brouillons
+                <span
+                  class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full"
+                  >{{
+                    invoices.filter(
+                      (inv) => inv.documentable?.status === "DRAFT",
+                    ).length
+                  }}</span
+                >
+              </button>
+              <button
+                @click="changeStatusFilter('SENT')"
+                :class="[
+                  'text-xs font-medium transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
+                  selectedStatus === 'SENT'
+                    ? 'bg-[#C5F82A]/15 text-[#062121]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
+                ]"
+              >
+                <i class="fas fa-paper-plane"></i> Envoyés
+                <span
+                  class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full"
+                  >{{
+                    invoices.filter(
+                      (inv) => inv.documentable?.status === "SENT",
+                    ).length
+                  }}</span
+                >
+              </button>
+              <button
+                @click="changeStatusFilter('FINALIZED')"
+                :class="[
+                  'text-xs font-medium transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
+                  selectedStatus === 'FINALIZED'
+                    ? 'bg-[#C5F82A]/15 text-[#062121]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
+                ]"
+              >
+                <i class="fas fa-check-circle"></i> Finalisés
+                <span
+                  class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full"
+                  >{{
+                    invoices.filter(
+                      (inv) => inv.documentable?.status === "FINALIZED",
+                    ).length
+                  }}</span
+                >
+              </button>
+              <button
+                @click="changeStatusFilter('PAID')"
+                :class="[
+                  'text-xs font-medium transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
+                  selectedStatus === 'PAID'
+                    ? 'bg-[#C5F82A]/15 text-[#062121]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
+                ]"
+              >
+                <i class="fas fa-check-double"></i> Payés
+                <span
+                  class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full"
+                  >{{
+                    invoices.filter(
+                      (inv) => inv.documentable?.status === "PAID",
+                    ).length
+                  }}</span
+                >
+              </button>
+              <button
+                @click="changeStatusFilter('OVERDUE')"
+                :class="[
+                  'text-xs font-medium transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
+                  selectedStatus === 'OVERDUE'
+                    ? 'bg-[#C5F82A]/15 text-[#062121]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
+                ]"
+              >
+                <i class="fas fa-clock"></i> En retard
+                <span
+                  class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full"
+                  >{{
+                    invoices.filter(
+                      (inv) => inv.documentable?.status === "OVERDUE",
+                    ).length
+                  }}</span
+                >
+              </button>
+              <button
+                @click="changeStatusFilter('CANCELLED')"
+                :class="[
+                  'text-xs font-medium transition-colors flex items-center gap-1.5 px-3 py-1.5 rounded-lg',
+                  selectedStatus === 'CANCELLED'
+                    ? 'bg-[#C5F82A]/15 text-[#062121]'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
+                ]"
+              >
+                <i class="fas fa-times-circle"></i> Annulés
+                <span
+                  class="text-xs bg-gray-300 text-gray-700 px-2 py-0.5 rounded-full"
+                  >{{
+                    invoices.filter(
+                      (inv) => inv.documentable?.status === "CANCELLED",
+                    ).length
+                  }}</span
+                >
+              </button>
+            </div>
           </div>
 
+          <!-- Content Area -->
           <div class="p-6 lg:p-8">
-            <div v-if="isLoading" class="text-center py-12">
+            <!-- LIST TAB: Invoice List -->
+            <template v-if="activeTab === 'list'">
+              <div v-if="isLoading" class="text-center py-12">
               <svg
                 class="animate-spin h-8 w-8 mx-auto text-[#C5F82A]"
                 fill="none"
@@ -416,11 +533,6 @@ onMounted(() => fetchInvoices());
                     <th
                       class="px-4 py-3 text-left text-xs font-semibold text-[#062121] uppercase tracking-wider"
                     >
-                      Type
-                    </th>
-                    <th
-                      class="px-4 py-3 text-left text-xs font-semibold text-[#062121] uppercase tracking-wider"
-                    >
                       Date échéance
                     </th>
                     <th
@@ -448,7 +560,7 @@ onMounted(() => fetchInvoices());
                   >
                     <td class="px-4 py-4 whitespace-nowrap">
                       <div class="text-sm font-semibold text-gray-900">
-                        #{{ invoice.number || "—" }}
+                        #{{ invoice.number || (invoice.documentable?.status === 'DRAFT' ? 'Brouillon' : '—') }}
                       </div>
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap">
@@ -461,16 +573,6 @@ onMounted(() => fetchInvoices());
                                 : invoice.customer?.name || "—"
                             }}
                       </div>
-                    </td>
-                    <td class="px-4 py-4 whitespace-nowrap">
-                      <span
-                        class="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800"
-                        >{{
-                          invoice.documentable?.type === "ACOMPTE"
-                            ? "Acompte"
-                            : "Standard"
-                        }}</span
-                      >
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap">
                       <div class="text-sm text-gray-600">
@@ -512,6 +614,31 @@ onMounted(() => fetchInvoices());
                 </tbody>
               </table>
             </div>
+          </template>
+
+            <!-- PAYMENT TAB: Payment Form -->
+            <template v-else-if="activeTab === 'payment'">
+              <div v-if="selectedInvoiceForPayment">
+                <RegisterPaymentForm
+                  :invoice="selectedInvoiceForPayment"
+                  @payment-registered="handlePaymentRegistered"
+                  @cancel="closePaymentForm"
+                  @open-cash-session="handleOpenCashSession"
+                />
+              </div>
+              <div v-else class="text-center py-12">
+                <i class="fas fa-hand-pointer text-5xl text-gray-300 mb-4 block"></i>
+                <p class="text-gray-500">
+                  Sélectionnez une facture dans la liste pour enregistrer un paiement.
+                </p>
+                <button
+                  @click="activeTab = 'list'"
+                  class="!p-[10px] !bg-[#0F172A] !text-white border-none rounded-lg font-bold text-xs sm:text-sm justify-center transition-all duration-300 hover:-translate-y-[1px] hover:shadow-[0_8px_15px_rgba(15,23,42,0.15)] inline-flex items-center gap-2 mt-4"
+                >
+                  <i class="fas fa-list"></i> Voir les factures
+                </button>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -525,16 +652,17 @@ onMounted(() => fetchInvoices());
       ></div>
       <div
         v-if="openDropdownId"
-        class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1"
+        class="fixed z-40 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-1 max-h-[360px] overflow-y-auto"
         :style="{
           top: dropdownPosition.top + 'px',
-          left: dropdownPosition.left + 'px',
+          right: '16px',
         }"
         @click.stop
       >
         <template v-for="inv in filteredInvoices" :key="inv.id">
           <div v-if="openDropdownId === inv.id">
             <button
+              v-if="!isImmutable(inv)"
               @click="editInvoice(inv.id)"
               class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
             >
@@ -562,13 +690,27 @@ onMounted(() => fetchInvoices());
             <button
               v-if="
                 inv.documentable?.status === 'FINALIZED' ||
-                inv.documentable?.status === 'SENT'
+                inv.documentable?.status === 'SENT' ||
+                inv.documentable?.status === 'OVERDUE'
               "
-              @click="markInvoicePaid(inv.id)"
+              @click="openPaymentForm(inv)"
               class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
             >
-              <i class="fas fa-check-double w-4 text-green-500"></i> Marquer
-              payé
+              <i class="fas fa-money-bill-wave w-4 text-green-500"></i> Enregistrer
+              un paiement
+            </button>
+            <button
+              v-if="
+                (inv.documentable?.status === 'PAID' ||
+                inv.documentable?.status === 'SENT' ||
+                inv.documentable?.status === 'OVERDUE') &&
+                !inv.documentable?.has_credit_note
+              "
+              @click="generateCreditNote(inv)"
+              class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+            >
+              <i class="fas fa-undo w-4 text-orange-500"></i> Générer un
+              Avoir
             </button>
             <button
               v-if="
@@ -588,6 +730,7 @@ onMounted(() => fetchInvoices());
               <i class="fas fa-file-pdf w-4 text-red-500"></i> Télécharger PDF
             </button>
             <button
+              v-if="!isImmutable(inv)"
               @click="deleteInvoice(inv.id, inv.number)"
               class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
             >

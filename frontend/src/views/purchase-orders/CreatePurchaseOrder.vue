@@ -1,6 +1,5 @@
-<!-- src/views/purchase-orders/CreatePurchaseOrder.vue -->
 <script setup>
-import { ref, reactive, computed, onMounted } from "vue";
+import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import axios from "axios";
@@ -11,6 +10,9 @@ import InputLabel from "@/components/InputLabel.vue";
 import TextInput from "@/components/TextInput.vue";
 import TextareaInput from "@/components/TextareaInput.vue";
 import CustomSelect from "@/components/CustomSelect.vue";
+import DocumentLineItem from "@/components/DocumentLineItem.vue";
+import DocumentTotals from "@/components/DocumentTotals.vue";
+import LinkedDocumentInfo from "@/components/LinkedDocumentInfo.vue";
 
 const router = useRouter();
 const route = useRoute();
@@ -18,6 +20,10 @@ const authStore = useAuthStore();
 const isLoading = ref(false);
 const isSaving = ref(false);
 const isFromQuote = ref(false);
+const isEditMode = computed(() => !!route.params.id);
+
+const linkedDocument = ref(null);
+const documentType = ref(null);
 
 const lookupData = ref({
   products: [],
@@ -71,13 +77,6 @@ const errors = reactive({
   server: "",
 });
 
-const closeDropdownWithDelay = (item, delay = 200) => {
-  window.setTimeout(() => {
-    item.showProductDropdown = false;
-    item.showTaxDropdown = false;
-  }, delay);
-};
-
 const fetchLookups = async () => {
   isLoading.value = true;
   try {
@@ -129,6 +128,56 @@ const fetchLookups = async () => {
   }
 };
 
+const fetchDocument = async (documentId) => {
+  isLoading.value = true;
+  try {
+    const { data } = await axios.get(`/api/purchase-orders/${documentId}`);
+    const doc = data.document || data;
+    if (!doc) {
+      error("Erreur", "Document introuvable.");
+      router.push("/purchase-orders");
+      return;
+    }
+
+    // Populate form with document data
+    form.customer_id = doc.customer_id;
+    form.bank_account_id = doc.bank_account_id;
+    form.date = doc.date || new Date().toISOString().split("T")[0];
+    form.expected_date = doc.expected_date || "";
+    form.payment_condition = doc.payment_condition || "";
+    form.payment_mode = doc.payment_mode || "";
+    form.late_fee_interest = doc.late_fee_interest || "";
+    form.notes = doc.notes || "";
+    form.terms = doc.terms || "";
+    form.intro_text = doc.intro_text || "";
+    form.footer_text = doc.footer_text || "";
+    form.conclusion_text = doc.conclusion_text || "";
+    form.global_discount_type = doc.global_discount_type || "percentage";
+    form.global_discount_value = doc.global_discount_value || 0;
+
+    // Populate items
+    form.items = (doc.items || []).map((item) => ({
+      product_id: item.product_id,
+      product_type: item.product_type,
+      designation: item.designation || item.description || "",
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      tax_rate: item.tax_rate,
+      discount_type: item.discount_type || "percentage",
+      discount_value: item.discount_value || 0,
+    }));
+  } catch (err) {
+    if (err.response?.status === 404) {
+      error("Document introuvable", "Le document demandé n'existe pas ou a été supprimé.");
+    } else {
+      error("Erreur", "Impossible de charger les données du document.");
+    }
+    router.push("/purchase-orders");
+  } finally {
+    isLoading.value = false;
+  }
+};
+
 const loadQuoteData = async (quoteId) => {
   try {
     const { data } = await axios.get(`/api/quotes/${quoteId}`);
@@ -136,6 +185,9 @@ const loadQuoteData = async (quoteId) => {
     if (!doc) return;
 
     isFromQuote.value = true;
+    linkedDocument.value = doc;
+    documentType.value = 'quote';
+
     form.customer_id = doc.customer_id;
     form.bank_account_id = doc.bank_account_id;
     form.parent_document_id = doc.id;
@@ -159,13 +211,14 @@ const loadQuoteData = async (quoteId) => {
       tax_rate: item.tax_rate,
       discount_type: item.discount_type || "percentage",
       discount_value: item.discount_value || 0,
-      showProductDropdown: false,
-      showTaxDropdown: false,
-      productSearch: "",
-      taxSearch: "",
     }));
   } catch (err) {
-    error("Erreur", "Impossible de charger les données du devis.");
+    if (err.response?.status === 404) {
+      error("Devis introuvable", "Le devis demandé n'existe pas ou a été supprimé.");
+      router.push("/quotes");
+    } else {
+      error("Erreur", "Impossible de charger les données du devis.");
+    }
   }
 };
 
@@ -178,81 +231,47 @@ const createItem = () => ({
   tax_rate: defaultTaxRateValue.value,
   discount_type: "percentage",
   discount_value: 0,
-  showProductDropdown: false,
-  showTaxDropdown: false,
-  productSearch: "",
-  taxSearch: "",
 });
 
 const addLine = () => {
   if (isFromQuote.value) return;
   form.items.push(createItem());
 };
+
 const removeLine = (index) => {
   if (isFromQuote.value) return;
   if (form.items.length > 1) form.items.splice(index, 1);
 };
 
-const toggleProductDropdown = (index) => {
+const handleSelectProduct = ({ index, product }) => {
   if (isFromQuote.value) return;
-  const item = form.items[index];
-  item.showProductDropdown = !item.showProductDropdown;
-  if (item.showProductDropdown) {
-    item.productSearch = item.designation || "";
-  } else {
-    item.productSearch = "";
+
+  const currentItem = form.items[index];
+
+  let productTypeId = "";
+  if (product.category_id) {
+    const categoryExists = lookupData.value.product_types.some(
+      (pt) => String(pt.id) === String(product.category_id)
+    );
+    if (categoryExists) {
+      productTypeId = String(product.category_id);
+    }
   }
+
+  const updatedItem = {
+    ...currentItem,
+    product_id: product.id,
+    designation: product.name,
+    unit_price: product.price,
+    product_type: productTypeId,
+  };
+  form.items[index] = updatedItem;
 };
 
-const toggleTaxDropdown = (index) => {
-  if (isFromQuote.value) return;
-  const item = form.items[index];
-  item.showTaxDropdown = !item.showTaxDropdown;
-  if (item.showTaxDropdown) {
-    item.taxSearch = String(item.tax_rate || "");
-  } else {
-    item.taxSearch = "";
-  }
-};
-
-const selectProduct = (index, product) => {
-  if (isFromQuote.value) return;
-  const item = form.items[index];
-  item.product_id = product.id;
-  item.designation = product.name;
-  item.unit_price = product.price;
-  item.product_type = product.product_category_id
-    ? String(product.product_category_id)
-    : "";
-  item.showProductDropdown = false;
-  item.productSearch = "";
-};
-
-const selectTaxRate = (index, taxRate) => {
+const handleSelectTaxRate = ({ index, taxRate }) => {
   if (isFromQuote.value) return;
   const item = form.items[index];
   item.tax_rate = taxRate.rate;
-  item.showTaxDropdown = false;
-  item.taxSearch = "";
-};
-
-const filterProducts = (index) => {
-  const item = form.items[index];
-  const query = item.productSearch.toLowerCase().trim();
-  if (!query) return lookupData.value.products;
-  return lookupData.value.products.filter((p) =>
-    p.name.toLowerCase().includes(query),
-  );
-};
-
-const filterTaxRates = (index) => {
-  const item = form.items[index];
-  const query = item.taxSearch.toLowerCase().trim();
-  if (!query) return lookupData.value.tax_rates;
-  return lookupData.value.tax_rates.filter(
-    (t) =>
-      String(t.rate).includes(query) || t.libelle.toLowerCase().includes(query),
-  );
 };
 
 const lineTotalHt = (item) => {
@@ -330,19 +349,24 @@ const submit = async () => {
   if (!validateForm()) return;
 
   const confirmed = await confirm(
-    "Enregistrer la commande",
-    "La commande sera enregistrée en tant que brouillon. Vous pourrez la finaliser ultérieurement.",
+    isEditMode.value ? "Mettre à jour la commande" : "Enregistrer la commande",
+    isEditMode.value
+      ? "Les modifications seront enregistrées."
+      : "La commande sera enregistrée en tant que brouillon. Vous pourrez la finaliser ultérieurement.",
   );
   if (!confirmed.isConfirmed) return;
 
   isSaving.value = true;
   try {
     const payload = { ...form, parent_document_id: form.parent_document_id || undefined };
-    const response = await axios.post("/api/purchase-orders", payload);
-    success(
-      "Commande enregistrée",
-      "La commande a été enregistrée en tant que brouillon.",
-    );
+
+    if (isEditMode.value) {
+      await axios.put(`/api/purchase-orders/${route.params.id}`, payload);
+      success("Commande mise à jour", "La commande a été mise à jour avec succès.");
+    } else {
+      await axios.post("/api/purchase-orders", payload);
+      success("Commande enregistrée", "La commande a été enregistrée en tant que brouillon.");
+    }
     router.push("/purchase-orders");
   } catch (err) {
     if (err.response?.status === 422) {
@@ -364,18 +388,27 @@ const saveAndFinalize = async () => {
   if (!validateForm()) return;
 
   const confirmed = await confirm(
-    "Finaliser la commande",
-    "La commande sera finalisée et un numéro lui sera attribué.",
+    isEditMode.value ? "Finaliser les modifications" : "Finaliser la commande",
+    isEditMode.value
+      ? "La commande sera finalisée avec les modifications."
+      : "La commande sera finalisée et un numéro lui sera attribué.",
   );
   if (!confirmed.isConfirmed) return;
 
   isSaving.value = true;
   try {
     const payload = { ...form, parent_document_id: form.parent_document_id || undefined };
-    const response = await axios.post("/api/purchase-orders", payload);
-    const createdDoc = response.data;
-    await axios.put(`/api/purchase-orders/${createdDoc.id}/finalize`);
-    success("Finalisé !", `La commande ${createdDoc.number} a été finalisée.`);
+
+    if (isEditMode.value) {
+      await axios.put(`/api/purchase-orders/${route.params.id}`, payload);
+      await axios.put(`/api/purchase-orders/${route.params.id}/finalize`);
+      success("Finalisé !", "La commande a été mise à jour et finalisée.");
+    } else {
+      const response = await axios.post("/api/purchase-orders", payload);
+      const createdDoc = response.data;
+      await axios.put(`/api/purchase-orders/${createdDoc.id}/finalize`);
+      success("Finalisé !", `La commande ${createdDoc.number} a été finalisée.`);
+    }
     router.push("/purchase-orders");
   } catch (err) {
     if (err.response?.status === 422) {
@@ -392,13 +425,31 @@ const saveAndFinalize = async () => {
   }
 };
 
+const loadLinkedDocument = async () => {
+  const quoteId = route.query.quote_id;
+  console.log('[CreatePurchaseOrder] quoteId:', quoteId);
+
+  if (quoteId) {
+    await loadQuoteData(parseInt(quoteId));
+  }
+};
+
 onMounted(async () => {
   await fetchLookups();
-  const quoteId = route.query.quote_id;
-  if (quoteId) {
-    await loadQuoteData(quoteId);
+
+  // Load document data if in edit mode
+  if (isEditMode.value) {
+    await fetchDocument(route.params.id);
+  } else {
+    await loadLinkedDocument();
   }
 });
+
+watch(() => route.query, async () => {
+  if (!isLoading.value) {
+    await loadLinkedDocument();
+  }
+}, { immediate: false });
 </script>
 
 <template>
@@ -413,7 +464,7 @@ onMounted(async () => {
               class="pb-3 text-sm font-bold transition-colors flex items-center gap-2 text-[#062121] border-b-2 border-[#C5F82A]"
             >
               <i class="fas fa-file-contract"></i>
-              Créer une Commande
+              {{ isEditMode ? "Modifier la Commande" : "Créer une Commande" }}
             </button>
           </div>
 
@@ -427,6 +478,13 @@ onMounted(async () => {
 
           <form v-else @submit.prevent="submit" class="p-6 lg:p-8 space-y-8">
             <InputError class="mt-2" :message="errors.server" />
+
+            <!-- Document lié -->
+            <LinkedDocumentInfo
+              v-if="linkedDocument"
+              :document="linkedDocument"
+              :document-type="documentType"
+            />
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
@@ -484,7 +542,8 @@ onMounted(async () => {
                 <table class="min-w-full">
                   <thead class="bg-gray-50">
                     <tr>
-                      <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[22%]">Produit</th>
+                      <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Produit</th>
+                      <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Type</th>
                       <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[10%]">Qté</th>
                       <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[13%]">P.U. HT</th>
                       <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[15%]">TVA %</th>
@@ -494,101 +553,33 @@ onMounted(async () => {
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-100">
-                    <tr v-for="(item, index) in form.items" :key="index" :class="index % 2 === 1 ? 'bg-gray-50/60' : 'bg-white'">
-                      <td class="px-4 py-3 relative z-10">
-                        <div class="relative">
-                          <input
-                            type="text"
-                            v-model="item.designation"
-                            @focus="toggleProductDropdown(index)"
-                            @blur="closeDropdownWithDelay(item, 200)"
-                            placeholder="— Saisie libre —"
-                            :disabled="isFromQuote"
-                            :class="['w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none', isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '']"
-                          />
-                          <div v-if="item.showProductDropdown" class="absolute left-0 z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                            <div class="p-2 border-b border-gray-100">
-                              <input type="text" v-model="item.productSearch" @input="filterProducts(index)" placeholder="Rechercher un produit..." class="w-full px-3 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:border-[#C5F82A]" />
-                            </div>
-                            <div v-for="product in filterProducts(index)" :key="product.id" @mousedown.prevent="selectProduct(index, product)" class="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center justify-between">
-                              <span>{{ product.name }}</span>
-                              <span class="text-xs text-gray-400 font-mono">{{ product.price }} DH</span>
-                            </div>
-                            <div v-if="filterProducts(index).length === 0" class="px-4 py-2 text-sm text-gray-500 italic text-center">Aucun produit trouvé</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td class="px-4 py-3">
-                        <input type="number" v-model.number="item.quantity" min="0.01" step="0.01" :disabled="isFromQuote" :class="['w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none', isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '']" />
-                      </td>
-                      <td class="px-4 py-3">
-                        <input type="number" v-model.number="item.unit_price" min="0" step="0.01" :disabled="isFromQuote" :class="['w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none', isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '']" />
-                      </td>
-                      <td class="px-4 py-3 relative z-10">
-                        <div class="relative">
-                          <input type="number" v-model.number="item.tax_rate" @focus="toggleTaxDropdown(index)" @blur="closeDropdownWithDelay(item, 200)" min="0" max="100" step="0.01" :disabled="isFromQuote" :class="['w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none', isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '']" placeholder="%" />
-                          <div v-if="item.showTaxDropdown" class="absolute left-0 z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                            <div class="p-2 border-b border-gray-100">
-                              <input type="text" v-model="item.taxSearch" @input="filterTaxRates(index)" placeholder="Rechercher un taux..." class="w-full px-3 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:border-[#C5F82A]" />
-                            </div>
-                            <div v-for="tax in filterTaxRates(index)" :key="tax.id" @mousedown.prevent="selectTaxRate(index, tax)" class="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer flex items-center justify-between">
-                              <span>{{ tax.libelle }}</span>
-                              <span class="text-xs text-gray-500 font-mono">{{ tax.rate }}%</span>
-                            </div>
-                            <div v-if="filterTaxRates(index).length === 0" class="px-4 py-2 text-sm text-gray-500 italic text-center">Aucun taux trouvé</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td class="px-4 py-3">
-                        <div class="flex items-center gap-1">
-                          <input type="number" v-model.number="item.discount_value" min="0" step="0.01" :disabled="isFromQuote" :class="['w-full rounded-lg border border-gray-200 px-2 py-2 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none', isFromQuote ? 'bg-gray-100 cursor-not-allowed' : '']" placeholder="0.00" />
-                          <CustomSelect v-model="item.discount_type" :options="[{ label: '%', value: 'percentage' }, { label: 'DH', value: 'fixed' }]" label-key="label" value-key="value" placeholder="Type" class="w-16" :disabled="isFromQuote" />
-                        </div>
-                      </td>
-                      <td class="px-4 py-3 text-center">
-                        <span class="text-sm font-semibold text-[#062121] font-mono">{{ fmt(lineTotalHt(item)) }}</span>
-                      </td>
-                      <td class="px-4 py-3 text-center">
-                        <button v-if="!isFromQuote" type="button" @click="removeLine(index)" :disabled="form.items.length === 1" class="text-red-400 hover:text-red-600 transition-colors disabled:opacity-20 disabled:cursor-not-allowed">
-                          <i class="fas fa-times text-xs"></i>
-                        </button>
-                      </td>
-                    </tr>
+                    <DocumentLineItem
+                      v-for="(item, index) in form.items"
+                      :key="index"
+                      :item="item"
+                      :index="index"
+                      :products="lookupData.products"
+                      :product-types="lookupData.product_types"
+                      :tax-rates="lookupData.tax_rates"
+                      :disabled="isFromQuote"
+                      @update:item="(newItem) => form.items[index] = newItem"
+                      @select-product="handleSelectProduct"
+                      @select-tax-rate="handleSelectTaxRate"
+                      @update:product-type="(value) => form.items[index].product_type = value"
+                      @remove-line="removeLine"
+                    />
                   </tbody>
                 </table>
               </div>
             </div>
 
-            <div class="flex justify-end">
-              <div class="w-full md:w-1/2">
-                <div class="rounded-xl border border-gray-200 overflow-hidden">
-                  <div class="px-5 py-3 flex justify-between border-b border-gray-100">
-                    <span class="text-sm text-gray-500">Total HT</span>
-                    <span class="text-sm font-semibold text-gray-800 font-mono">{{ fmt(totals.ht) }} DH</span>
-                  </div>
-                  <div class="px-5 py-3 flex justify-between items-center border-b border-gray-100">
-                    <span class="text-sm text-gray-500">Remise générale</span>
-                    <div class="flex items-center gap-2">
-                      <input type="number" v-model.number="form.global_discount_value" min="0" step="0.01" class="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center text-gray-700 focus:border-[#C5F82A] focus:ring-[3px] focus:ring-[#C5F82A]/20 outline-none" placeholder="0.00" />
-                      <CustomSelect v-model="form.global_discount_type" :options="[{ label: '%', value: 'percentage' }, { label: 'DH', value: 'fixed' }]" label-key="label" value-key="value" placeholder="Type" class="w-16" />
-                      <span class="text-sm font-semibold text-red-600 whitespace-nowrap">- {{ fmt(totals.globalDiscount) }}</span>
-                    </div>
-                  </div>
-                  <div class="px-5 py-3 flex justify-between border-b border-gray-100 bg-gray-50/50">
-                    <span class="text-sm text-gray-500">Total HT après remise</span>
-                    <span class="text-sm font-semibold text-gray-800 font-mono">{{ fmt(totals.htAfterDiscount) }} DH</span>
-                  </div>
-                  <div class="px-5 py-3 flex justify-between border-b border-gray-100 bg-gray-50/50">
-                    <span class="text-sm text-gray-500">TVA</span>
-                    <span class="text-sm font-semibold text-gray-800 font-mono">{{ fmt(totals.tvaAfterDiscount) }} DH</span>
-                  </div>
-                  <div class="px-5 py-4 flex justify-between bg-gray-50">
-                    <span class="text-sm font-bold text-[#062121] uppercase tracking-wide">Total TTC</span>
-                    <span class="text-lg font-black text-[#062121] font-mono">{{ fmt(totals.ttc) }} DH</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <DocumentTotals
+              :totals="totals"
+              :global-discount-type="form.global_discount_type"
+              :global-discount-value="form.global_discount_value"
+              @update:global-discount-type="form.global_discount_type = $event"
+              @update:global-discount-value="form.global_discount_value = $event"
+            />
 
             <div class="space-y-6">
               <h3 class="text-sm font-bold text-[#062121] uppercase tracking-wider">Règlement</h3>

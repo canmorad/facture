@@ -15,7 +15,11 @@ class UserStatusController extends Controller
     {
         $user = $request->user();
 
-        $companyId = config('app.current_company_id');
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
+        $companyId = $request->header('X-Company-Id') ?? config('app.current_company_id');
 
         $userCompanies = UserCompany::with(['company', 'role'])
             ->where('user_id', $user->id)
@@ -32,8 +36,6 @@ class UserStatusController extends Controller
             });
 
         $hasCompany = $userCompanies->isNotEmpty();
-
-        // Use header company id, fallback to first company
         $effectiveCompanyId = $companyId ?? ($hasCompany ? $userCompanies->first()['id'] : null);
 
         $isOwner = false;

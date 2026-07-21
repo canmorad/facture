@@ -75,4 +75,45 @@ class InvitationController extends Controller
             ], 500);
         }
     }
+
+    public function acceptForExistingUser(Request $request): JsonResponse
+    {
+        $request->validate([
+            'token' => 'required|string',
+        ]);
+
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Utilisateur non authentifié.',
+                ], 401);
+            }
+
+            $result = $this->invitationService->acceptForExistingUser(
+                $user,
+                $request->input('token')
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Vous avez été ajouté à l\'entreprise avec succès.',
+                'company' => $result['company'],
+                'user' => $result['user'],
+                'already_linked' => $result['already_linked'] ?? false,
+            ]);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error('Invitation accept for existing user error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de l\'acceptation de l\'invitation.',
+            ], 500);
+        }
+    }
 }

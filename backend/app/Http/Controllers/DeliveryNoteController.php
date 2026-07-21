@@ -19,7 +19,16 @@ class DeliveryNoteController extends Controller
     {
         Gate::authorize('view-documents');
         try {
-            $deliveryNotes = $this->deliveryNoteService->getAll($request->query('status'));
+            $perPage = (int) $request->input('per_page', 10);
+            $filters = [
+                'status' => $request->input('status'),
+                'search' => $request->input('search'),
+                'date_from' => $request->input('date_from'),
+                'date_to' => $request->input('date_to'),
+                'customer_id' => $request->input('customer_id'),
+            ];
+
+            $deliveryNotes = $this->deliveryNoteService->getPaginated($filters, $perPage);
             return response()->json($deliveryNotes);
         } catch (\Throwable $e) {
             Log::error('DeliveryNote index error: ' . $e->getMessage(), ['exception' => $e]);
@@ -47,7 +56,7 @@ class DeliveryNoteController extends Controller
                 ], 404);
             }
 
-            $actions = $this->deliveryNoteService->getAvailableActions($id);
+            $actions = $this->deliveryNoteService->getAvailableActions($document->documentable_id);
 
             return response()->json([
                 'document' => $document,
@@ -196,6 +205,60 @@ class DeliveryNoteController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Une erreur est survenue lors de la conversion.',
+            ], 500);
+        }
+    }
+
+    public function consolidateToInvoice(Request $request): JsonResponse
+    {
+        Gate::authorize('create-document');
+        try {
+            $deliveryNoteIds = $request->input('delivery_note_ids', []);
+            $invoiceType = $request->input('type', 'STANDARD');
+
+            if (count($deliveryNoteIds) < 2) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Au moins 2 bons de livraison sont requis.',
+                ], 422);
+            }
+
+            $document = $this->deliveryNoteService->consolidateToInvoice($deliveryNoteIds, $invoiceType);
+            return response()->json($document, 201);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error('DeliveryNote consolidateToInvoice error: ' . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue lors de la consolidation.',
+            ], 500);
+        }
+    }
+
+    public function getConsolidatable(int $id): JsonResponse
+    {
+        Gate::authorize('view-documents');
+        try {
+            $document = Document::where('id', $id)
+                ->where('company_id', $this->getCompanyId())
+                ->where('documentable_type', DeliveryNote::class)
+                ->firstOrFail();
+
+            $consolidatable = $this->deliveryNoteService->getConsolidatableDeliveryNotes($document->customer_id);
+
+            return response()->json([
+                'delivery_notes' => $consolidatable,
+                'current_document_id' => $id,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("DeliveryNote getConsolidatable error ID {$id}: " . $e->getMessage(), ['exception' => $e]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Une erreur est survenue.',
             ], 500);
         }
     }

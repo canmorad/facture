@@ -168,6 +168,7 @@ const tabs = [
   { label: 'Avoirs', value: 'CREDIT_NOTE', icon: 'fas fa-credit-card' },
   { label: 'Factures d\'acompte', value: 'DEPOSIT_INVOICE', icon: 'fas fa-hand-holding-usd' },
   { label: 'Avoirs d\'acompte', value: 'DEPOSIT_CREDIT_NOTE', icon: 'fas fa-hand-holding-heart' },
+  { label: 'Factures de solde', value: 'BALANCE_INVOICE', icon: 'fas fa-file-invoice-dollar' },
   { label: 'Bons de livraison', value: 'DELIVERY_NOTE', icon: 'fas fa-truck' },
 ];
 

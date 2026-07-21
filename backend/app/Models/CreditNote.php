@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Models\Traits\HasStateMachine;
+use App\Traits\LogsActivityTrait;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 class CreditNote extends Model
 {
-    use HasStateMachine;
+    use HasStateMachine, LogsActivityTrait;
 
     protected static function getTransitions(): array
     {

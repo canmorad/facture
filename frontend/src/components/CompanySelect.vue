@@ -1,5 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const props = defineProps({
   modelValue: {
@@ -16,6 +19,7 @@ const emit = defineEmits(['update:modelValue'])
 
 const isOpen = ref(false)
 const dropdownRef = ref(null)
+const isSwitching = ref(false)
 
 const selectedCompany = computed({
   get: () => props.modelValue,
@@ -30,9 +34,24 @@ const toggleDropdown = () => {
   if (props.companies.length) isOpen.value = !isOpen.value
 }
 
-const selectCompany = (id) => {
-  localStorage.setItem('current_company_id', String(id))
-  window.location.reload()
+const selectCompany = async (id) => {
+  if (isSwitching.value || id === selectedCompany.value) return
+
+  isSwitching.value = true
+  try {
+    // Use auth store to switch companies
+    await authStore.setActiveCompany(id)
+    // Emit the change event
+    emit('update:modelValue', id)
+    isOpen.value = false
+  } catch (error) {
+    console.error('Failed to switch company:', error)
+    // Re-open dropdown to allow user to try again
+    // Don't show alert here as it would be disruptive
+    // The component will remain in the previous state
+  } finally {
+    isSwitching.value = false
+  }
 }
 
 const handleClickOutside = (event) => {

@@ -48,7 +48,7 @@ class DocumentSettingController extends Controller
             $companyId = $this->getCompanyId();
             $validated = $request->validate([
                 'document_type' => ['required', Rule::in([
-                    'QUOTE', 'INVOICE', 'PURCHASE_ORDER',
+                    'QUOTE', 'INVOICE', 'PROFORMA', 'PURCHASE_ORDER',
                     'DELIVERY_NOTE', 'CREDIT_NOTE',
                     'DEPOSIT_INVOICE', 'DEPOSIT_CREDIT_NOTE'
                 ])],

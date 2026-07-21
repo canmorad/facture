@@ -19,7 +19,16 @@ class DepositController extends Controller
     {
         Gate::authorize('view-documents');
         try {
-            $deposits = $this->depositService->getAll($request->query('status'));
+            $perPage = (int) $request->input('per_page', 10);
+            $filters = [
+                'status' => $request->input('status'),
+                'search' => $request->input('search'),
+                'date_from' => $request->input('date_from'),
+                'date_to' => $request->input('date_to'),
+                'customer_id' => $request->input('customer_id'),
+            ];
+
+            $deposits = $this->depositService->getPaginated($filters, $perPage);
             return response()->json($deposits);
         } catch (\Throwable $e) {
             Log::error('Deposit index error: ' . $e->getMessage(), ['exception' => $e]);
@@ -75,7 +84,7 @@ class DepositController extends Controller
         }
     }
 
-    private function getQuoteIdFromDocumentId(int $id, int $companyId): ?int
+    private function getQuoteIdFromDocumentId(?int $id, int $companyId): ?int
     {
         $quote = Quote::where('id', $id)->first();
 
@@ -132,14 +141,18 @@ class DepositController extends Controller
         try {
             $companyId = $this->getCompanyId();
             $payload = $request->validated();
-            $quoteId = $this->getQuoteIdFromDocumentId($payload['quote_id'], $companyId);
-            if (!$quoteId) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Devis source introuvable.',
-                ], 404);
+
+            // Only resolve quote_id if it's provided
+            if ($payload['quote_id'] !== null) {
+                $quoteId = $this->getQuoteIdFromDocumentId($payload['quote_id'], $companyId);
+                if (!$quoteId) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Devis source introuvable.',
+                    ], 404);
+                }
+                $payload['quote_id'] = $quoteId;
             }
-            $payload['quote_id'] = $quoteId;
 
             $document = $this->depositService->createDeposit($payload);
             return response()->json($document, 201);

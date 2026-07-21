@@ -19,7 +19,16 @@ class PurchaseOrderController extends Controller
     {
         Gate::authorize('view-documents');
         try {
-            $purchaseOrders = $this->purchaseOrderService->getAll($request->query('status'));
+            $perPage = (int) $request->input('per_page', 10);
+            $filters = [
+                'status' => $request->input('status'),
+                'search' => $request->input('search'),
+                'date_from' => $request->input('date_from'),
+                'date_to' => $request->input('date_to'),
+                'customer_id' => $request->input('customer_id'),
+            ];
+
+            $purchaseOrders = $this->purchaseOrderService->getPaginated($filters, $perPage);
             return response()->json($purchaseOrders);
         } catch (\Throwable $e) {
             Log::error('PurchaseOrder index error: ' . $e->getMessage(), ['exception' => $e]);

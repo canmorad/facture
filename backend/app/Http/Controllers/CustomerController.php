@@ -10,9 +10,38 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use OpenApi\Annotations as OA;
 
 class CustomerController extends Controller
 {
+    /**
+     * @OA\Get(
+     *     path="/api/customers",
+     *     summary="Get all customers",
+     *     description="Get a list of all customers for the current company",
+     *     operationId="getCustomers",
+     *     tags={"Customers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\Response(
+     *         response="200",
+     *         description="Customers retrieved successfully",
+     *         @OA\JsonContent(
+     *             type="array",
+     *             @OA\Items(ref="#/components/schemas/Customer")
+     *         )
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="500",
+     *         description="Internal server error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Une erreur interne est survenue.")
+     *         )
+     *     )
+     * )
+     */
     public function index()
     {
         Gate::authorize('view-customers');
@@ -30,6 +59,163 @@ class CustomerController extends Controller
         }
     }
 
+    /**
+     * @OA\Post(
+     *     path="/api/customers",
+     *     summary="Create a new customer",
+     *     description="Create a new B2B or B2C customer for the current company",
+     *     operationId="createCustomer",
+     *     tags={"Customers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\MediaType(
+     *             mediaType="application/json",
+     *             @OA\Schema(
+     *                 required={"type"},
+     *                 @OA\Property(
+     *                     property="type",
+     *                     type="string",
+     *                     enum={"b2b", "b2c"},
+     *                     description="Customer type",
+     *                     example="b2b"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="email",
+     *                     type="string",
+     *                     format="email",
+     *                     maxLength=255,
+     *                     nullable=true,
+     *                     example="customer@example.com"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="phone",
+     *                     type="string",
+     *                     maxLength=50,
+     *                     nullable=true,
+     *                     example="+212512345678"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="address_street",
+     *                     type="string",
+     *                     maxLength=500,
+     *                     nullable=true,
+     *                     example="123 Customer Street"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="city",
+     *                     type="string",
+     *                     maxLength=255,
+     *                     nullable=true,
+     *                     example="Casablanca"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="postal_code",
+     *                     type="string",
+     *                     maxLength=20,
+     *                     nullable=true,
+     *                     example="20000"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="country",
+     *                     type="string",
+     *                     maxLength=255,
+     *                     nullable=true,
+     *                     example="Maroc"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="notes",
+     *                     type="string",
+     *                     nullable=true,
+     *                     example="VIP customer"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="is_active",
+     *                     type="boolean",
+     *                     example=true
+     *                 ),
+     *                 @OA\Property(
+     *                     property="legal_name",
+     *                     type="string",
+     *                     maxLength=255,
+     *                     description="Required for B2B customers",
+     *                     nullable=true,
+     *                     example="Acme Corporation"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="ice",
+     *                     type="string",
+     *                     maxLength=50,
+     *                     description="Required for B2B customers",
+     *                     nullable=true,
+     *                     example="00123456789"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="rc",
+     *                     type="string",
+     *                     maxLength=255,
+     *                     nullable=true,
+     *                     description="B2B RC number"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="if",
+     *                     type="string",
+     *                     maxLength=255,
+     *                     nullable=true,
+     *                     description="B2B IF number"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="patente",
+     *                     type="string",
+     *                     maxLength=255,
+     *                     nullable=true,
+     *                     description="B2B Patente number"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="name",
+     *                     type="string",
+     *                     maxLength=255,
+     *                     description="Required for B2C customers",
+     *                     nullable=true,
+     *                     example="John Doe"
+     *                 ),
+     *                 @OA\Property(
+     *                     property="cin",
+     *                     type="string",
+     *                     maxLength=50,
+     *                     description="B2C CIN number",
+     *                     nullable=true
+     *                 )
+     *             )
+     *         )
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="201",
+     *         description="Customer created successfully",
+     *         @OA\JsonContent(ref="#/components/schemas/Customer")
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="422",
+     *         description="Validation error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Une erreur est survenue lors de la création.")
+     *         )
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="500",
+     *         description="Internal server error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string")
+     *         )
+     *     )
+     * )
+     */
     public function store(Request $request)
     {
         Gate::authorize('create-customer');
@@ -91,6 +277,39 @@ class CustomerController extends Controller
         }
     }
 
+    /**
+     * @OA\Get(
+     *     path="/api/customers/{id}",
+     *     summary="Get a customer by ID",
+     *     description="Get a specific customer by ID for the current company",
+     *     operationId="getCustomer",
+     *     tags={"Customers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         required=true,
+     *         description="Customer ID",
+     *         @OA\Schema(type="integer")
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="200",
+     *         description="Customer retrieved successfully",
+     *         @OA\JsonContent(ref="#/components/schemas/Customer")
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="404",
+     *         description="Customer not found",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Client introuvable.")
+     *         )
+     *     )
+     * )
+     */
     public function show($id)
     {
         Gate::authorize('view-customers');
@@ -106,6 +325,63 @@ class CustomerController extends Controller
         }
     }
 
+    /**
+     * @OA\Put(
+     *     path="/api/customers/{id}",
+     *     summary="Update a customer",
+     *     description="Update a specific customer by ID",
+     *     operationId="updateCustomer",
+     *     tags={"Customers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         required=true,
+     *         description="Customer ID",
+     *         @OA\Schema(type="integer")
+     *     ),
+     *
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\MediaType(
+     *             mediaType="application/json",
+     *             @OA\Schema(
+     *                 @OA\Property(property="email", type="string", format="email", maxLength=255, nullable=true),
+     *                 @OA\Property(property="phone", type="string", maxLength=50, nullable=true),
+     *                 @OA\Property(property="address_street", type="string", maxLength=500, nullable=true),
+     *                 @OA\Property(property="city", type="string", maxLength=255, nullable=true),
+     *                 @OA\Property(property="postal_code", type="string", maxLength=20, nullable=true),
+     *                 @OA\Property(property="country", type="string", maxLength=255, nullable=true),
+     *                 @OA\Property(property="notes", type="string", nullable=true),
+     *                 @OA\Property(property="is_active", type="boolean"),
+     *                 @OA\Property(property="legal_name", type="string", maxLength=255, nullable=true),
+     *                 @OA\Property(property="ice", type="string", maxLength=50, nullable=true),
+     *                 @OA\Property(property="rc", type="string", maxLength=255, nullable=true),
+     *                 @OA\Property(property="if", type="string", maxLength=255, nullable=true),
+     *                 @OA\Property(property="patente", type="string", maxLength=255, nullable=true),
+     *                 @OA\Property(property="name", type="string", maxLength=255, nullable=true),
+     *                 @OA\Property(property="cin", type="string", maxLength=50, nullable=true)
+     *             )
+     *         )
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="200",
+     *         description="Customer updated successfully",
+     *         @OA\JsonContent(ref="#/components/schemas/Customer")
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="500",
+     *         description="Internal server error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Une erreur est survenue lors de la mise à jour.")
+     *         )
+     *     )
+     * )
+     */
     public function update(Request $request, $id)
     {
         Gate::authorize('edit-customer');
@@ -170,6 +446,38 @@ class CustomerController extends Controller
         }
     }
 
+    /**
+     * @OA\Delete(
+     *     path="/api/customers/{id}",
+     *     summary="Delete a customer",
+     *     description="Delete a specific customer by ID",
+     *     operationId="deleteCustomer",
+     *     tags={"Customers"},
+     *     security={{"sanctum":{}}, {"check.company":{}}},
+     *
+     *     @OA\Parameter(
+     *         name="id",
+     *         in="path",
+     *         required=true,
+     *         description="Customer ID",
+     *         @OA\Schema(type="integer")
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="204",
+     *         description="Customer deleted successfully"
+     *     ),
+     *
+     *     @OA\Response(
+     *         response="500",
+     *         description="Internal server error",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=false),
+     *             @OA\Property(property="message", type="string", example="Une erreur est survenue lors de la suppression.")
+     *         )
+     *     )
+     * )
+     */
     public function destroy($id)
     {
         Gate::authorize('delete-customer');
