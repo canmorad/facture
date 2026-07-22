@@ -59,21 +59,21 @@ Route::post('/forgot-password', [PasswordResetLinkController::class, 'store']);
 Route::post('/reset-password', [NewPasswordController::class, 'store']);
 
 Route::get('/verify-email/{id}/{hash}', VerifyEmailController::class)
-    ->middleware(['auth:sanctum', 'signed', 'throttle:6,1']);
+    ->middleware(['auth:web', 'signed', 'throttle:6,1']);
 
 Route::post('/email/verification-notification', function (Request $request) {
     $request->user()->sendEmailVerificationNotification();
     return response()->json(['message' => 'Verification link sent']);
-})->middleware(['auth:sanctum', 'throttle:6,1']);
+})->middleware(['auth:web', 'throttle:6,1']);
 
 Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])
-    ->middleware('auth:sanctum');
+    ->middleware('auth:web');
 
 // ============================================
 // PROTECTED AUTHENTICATION ROUTES
 // ============================================
-// User profile routes (auth:sanctum only, no company check required)
-Route::middleware(['auth:sanctum'])->group(function () {
+// User profile routes (auth:web only, no company check required)
+Route::middleware(['auth:web'])->group(function () {
     Route::get('/user-status', UserStatusController::class);
 
     Route::get('/user/profile', [ProfileController::class, 'getProfile']);
@@ -92,7 +92,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 // ============================================
 Route::get('/invitations/verify/{token}', [InvitationController::class, 'verify']);
 Route::post('/invitations/accept', [InvitationController::class, 'accept']);
-Route::middleware(['auth:sanctum'])->post('/invitations/accept-existing', [InvitationController::class, 'acceptForExistingUser']);
+Route::middleware(['auth:web'])->post('/invitations/accept-existing', [InvitationController::class, 'acceptForExistingUser']);
 
 // ============================================
 // DEBUG ROUTE
@@ -109,7 +109,7 @@ Route::get('/debug-test', function () {
 // PROTECTED COMPANY ROUTES
 // ============================================
 // All routes below require authentication AND a valid company context
-Route::middleware(['auth:sanctum', 'check.company'])->group(function () {
+Route::middleware(['auth:web', 'check.company'])->group(function () {
     // Tax Rates
     Route::apiResource('tax-rates', TaxRateController::class)->except(['destroy']);
     Route::delete('tax-rates/{id}', [TaxRateController::class, 'destroy']);
